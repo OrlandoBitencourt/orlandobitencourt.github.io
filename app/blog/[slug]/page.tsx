@@ -90,9 +90,17 @@ export default function Blog({ params }) {
           {formatDate(post.metadata.publishedAt)}
         </p>
       </div>
+      <div className="flex">
+        <img
+          src={post.metadata.thumbnail}
+          alt={post.metadata.title}
+          className="h-50 w-auto object-contain"
+        />
+      </div>
       <article className="prose">
         <CustomMDX source={post.content} />
       </article>
+      
     </section>
   )
 }

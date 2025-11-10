@@ -5,7 +5,8 @@
   color: #fefefe;
 }
 
-:root {
+:root {  
+  --text-color: #e0e0e0;
   --sh-class: #2d5e9d;
   --sh-identifier: #354150;
   --sh-sign: #8996a3;
@@ -25,7 +26,7 @@
     --sh-string: #0fa295;
   }
   html {
-    color-scheme: dark;
+    color-scheme: light dark;
   }
 }
 
