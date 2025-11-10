@@ -4,14 +4,13 @@ export default function Page() {
   return (
     <section>
       <h1 className="mb-8 text-2xl font-semibold tracking-tighter">
-        My Portfolio
+        Blog de Orlando
       </h1>
       <p className="mb-4">
-        {`I'm a Vim enthusiast and tab advocate, finding unmatched efficiency in
-        Vim's keystroke commands and tabs' flexibility for personal viewing
-        preferences. This extends to my support for static typing, where its
-        early error detection ensures cleaner code, and my preference for dark
-        mode, which eases long coding sessions by reducing eye strain.`}
+        {`Sou desenvolvedor de software apaixonado por criar, otimizar e explorar novas ideias.
+          Atualmente estou trabalhando na Serasa como desenvolvedor backend senior, desde 2021. 
+          Minhas principais stacks são golang e python, porem eu ja me aventurei com no code 
+          (polêmico hehe) e agora com vibe coding (cursor + claude sonet 4.5 etc).`}
       </p>
       <div className="my-8">
         <BlogPosts />
