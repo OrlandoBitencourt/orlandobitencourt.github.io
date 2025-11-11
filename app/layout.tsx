@@ -15,6 +15,9 @@ export const metadata: Metadata = {
     template: '%s | Blog de Orlando Cechlar Bitencourt',
   },
   description: 'Este é meu blog',
+  icons: {
+    icon: '/icon.png',
+  },
   openGraph: {
     title: 'Blog de Orlando Cechlar Bitencourt',
     description: 'Blog de Orlando onde eu posto sobre desenvolvimento, tecnologia e opiniões gerais.',
