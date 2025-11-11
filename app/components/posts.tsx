@@ -33,7 +33,7 @@ export function BlogPosts() {
                 />
               </div>
 
-              <li>
+              <div className="flex flex-col">
               <p className="text-sm text-neutral-600 dark:text-neutral-400 tabular-nums">
                 {formatDate(post.metadata.publishedAt, false)}
               </p>
@@ -41,7 +41,7 @@ export function BlogPosts() {
                 {post.metadata.title}
               </p>
               <p className="text-sm text-gray-400">{post.metadata.summary}</p>
-              </li>
+              </div>
             </div>
           </Link>
         ))}
