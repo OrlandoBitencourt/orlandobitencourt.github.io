@@ -11,15 +11,15 @@ import { baseUrl } from './sitemap'
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'Bem vindo - blog de Orlando',
-    template: '%s | blog de Orlando',
+    default: 'Blog de Orlando Cechlar Bitencourt',
+    template: '%s | Blog de Orlando Cechlar Bitencourt',
   },
   description: 'Este é meu blog',
   openGraph: {
-    title: 'Blog de Orlando',
+    title: 'Blog de Orlando Cechlar Bitencourt',
     description: 'Blog de Orlando onde eu posto sobre desenvolvimento, tecnologia e opiniões gerais.',
     url: baseUrl,
-    siteName: 'Blog de Orlando',
+    siteName: 'Blog de Orlando Cechlar Bitencourt',
     locale: 'pt_BR',
     type: 'website',
   },
