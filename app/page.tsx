@@ -8,8 +8,8 @@ export default function Page() {
         alt="Orlando Bitencourt"
         className="w-32 h-32 rounded-full mx-auto mb-4 border-2 border-gray-700"
       />
-      <h1 className="mb-8 text-2xl font-semibold tracking-tighter">
-        Blog de Orlando
+      <h1 className="mb-8 text-2xl font-semibold tracking-tighter text-center">
+        Dev Orlando Bitencourt
       </h1>
       <p className="mb-4">
         {`Sou desenvolvedor de software apaixonado por criar, otimizar e explorar novas ideias.
