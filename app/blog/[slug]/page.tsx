@@ -13,10 +13,8 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const post = getBlogPosts().find(async (post) => post.slug = await params.slug)
-  if (!post) {
-    return
-  }
+  const post = getBlogPosts().find((post) => post.slug === params.slug)
+  if (!post) return
 
   const {
     title,
@@ -50,11 +48,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 export default function BlogPostPage({ params }: { params: { slug: string } }) {
-  const post = getBlogPosts().find(async (post) => post.slug = await params.slug)
+  const post = getBlogPosts().find((post) => post.slug === params.slug)
 
-  if (!post) {
-    notFound()
-  }
+  if (!post) notFound()
 
   return (
     <section>
@@ -99,7 +95,6 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
         <CustomMDX source={post.content} />
         <Comments />
       </article>
-      
     </section>
   )
 }
