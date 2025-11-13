@@ -7,13 +7,13 @@ export default function Comments() {
     <div className="mt-12">
       <Giscus
         id="comments"
-        repo="OrlandoBitencourt/orlandobitencourt.github.io"
+        repo="https://OrlandoBitencourt/orlandobitencourt.github.io"
         repoId="R_kgDOQSgBjQ"
         category="General"
         categoryId="DIC_kwDOQSgBjc4Cxv"
         mapping="pathname"
         reactionsEnabled="1"
-        emitMetadata="1"
+        emitMetadata="0"
         inputPosition="top"
         theme="noborder_dark"
         lang="pt"
