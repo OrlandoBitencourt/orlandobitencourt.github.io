@@ -1,35 +1,22 @@
 'use client'
-
 import { useEffect } from 'react'
 
 export default function Comments() {
   useEffect(() => {
+    // Evita inserir o script duas vezes
+    const hasUtterances = document.querySelector('script[src="https://utteranc.es/client.js"]')
+    if (hasUtterances) return
+
     const script = document.createElement('script')
-    script.src = 'https://giscus.app/client.js'
-    script.setAttribute('data-repo', 'OrlandoBitencourt/ob-blog-comments')
-    script.setAttribute('data-repo-id', 'R_kgDOQU5iGg')
-    script.setAttribute('data-category', 'Comments')
-    script.setAttribute('data-category-id', 'DIC_kwDOQU5iGs4CxyHO')
-    script.setAttribute('data-mapping', 'pathname')
-    script.setAttribute('data-strict', '0')
-    script.setAttribute('data-reactions-enabled', '1')
-    script.setAttribute('data-emit-metadata', '1')
-    script.setAttribute('data-input-position', 'top')
-    script.setAttribute('data-theme', 'noborder_dark')
-    script.setAttribute('data-lang', 'pt')
-    script.setAttribute('crossorigin', 'anonymous')
+    script.src = 'https://utteranc.es/client.js'
     script.async = true
+    script.setAttribute('repo', 'OrlandoBitencourt/ob-blog-comments')
+    script.setAttribute('issue-term', 'pathname')
+    script.setAttribute('theme', 'github-dark')
+    script.setAttribute('crossorigin', 'anonymous')
 
     const comments = document.getElementById('comments')
-    if (comments) {
-      comments.appendChild(script)
-    }
-
-    return () => {
-      if (comments) {
-        comments.innerHTML = ''
-      }
-    }
+    comments?.appendChild(script)
   }, [])
 
   return <div id="comments" className="mt-12" />
