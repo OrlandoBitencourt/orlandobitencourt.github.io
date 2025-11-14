@@ -8,8 +8,8 @@ export default function Comments() {
     script.src = 'https://giscus.app/client.js'
     script.setAttribute('data-repo', 'OrlandoBitencourt/ob-blog-comments')
     script.setAttribute('data-repo-id', 'R_kgDOQU5iGg')
-    script.setAttribute('data-category', 'General')
-    script.setAttribute('data-category-id', 'DIC_kwDOQU5iGs4CltEV')
+    script.setAttribute('data-category', 'Comments')
+    script.setAttribute('data-category-id', 'DIC_kwDOQU5iGs4CxyHO')
     script.setAttribute('data-mapping', 'pathname')
     script.setAttribute('data-strict', '0')
     script.setAttribute('data-reactions-enabled', '1')
