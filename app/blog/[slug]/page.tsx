@@ -52,8 +52,6 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
 
   if (!post) notFound()
 
-  const url = `https://orlandobitencourt.vercel.app/blog/${post.slug}`
-
   return (
     <section>
       <script
@@ -78,9 +76,11 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
           }),
         }}
       />
+
       <h1 className="title font-semibold text-2xl tracking-tighter">
         {post.metadata.title}
       </h1>
+
       <div className="flex justify-between items-center mt-2 mb-8 text-sm">
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           Data de publicação: {formatDate(post.metadata.publishedAt)}
