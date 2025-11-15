@@ -102,6 +102,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
       </div>
       <article className="prose">
         <CustomMDX source={post.content} />
+        <Comments />
       </article>
     </section>
   )
