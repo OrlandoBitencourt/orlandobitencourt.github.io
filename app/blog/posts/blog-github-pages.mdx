@@ -1,0 +1,165 @@
+---
+title: "Como criar um blog grátis no GitHub Pages com Next.js"
+date: "2025-11-15"
+description: "Um guia prático de como montei meu blog pessoal usando Next.js e hospedei de graça no GitHub Pages"
+thumbnail: "/thumbnails/github-pages-blog.jpg"
+---
+
+# Como criar um blog grátis no GitHub Pages com Next.js
+
+Depois de procrastinar por alguns meses, finalmente coloquei meu blog no ar usando GitHub Pages. O processo foi mais simples do que eu imaginava, e o melhor: totalmente de graça.
+
+E nada mais justo do que o primeiro post "de verdade" ser sobre como o próprio blog foi feito. É tipo aqueles filmes que falam sobre fazer filmes - uma inception meta que todo dev que cria blog acaba fazendo em algum momento.
+
+## Por que escolhi GitHub Pages
+
+Eu poderia ter optado por um VPS tradicional ou algum serviço de hospedagem pago, mas para um blog pessoal que vai ter atualizações esporádicas, não fazia sentido. O GitHub Pages oferece hospedagem gratuita, deploy automático toda vez que você faz push no repositório, SSL já incluído (seu site fica no HTTPS sem configuração extra), e você ganha um domínio no formato `seuusuario.github.io`. Para começar, é perfeito.
+
+## A stack que escolhi
+
+Decidi usar Next.js como framework porque já trabalho com React no dia a dia. O Next.js tem suporte excelente para geração de sites estáticos, que é exatamente o que o GitHub Pages precisa. Adicionei TypeScript para ter tipagem e evitar bugs bobos, Tailwind CSS para estilizar sem escrever CSS puro, e MDX para escrever os posts - que é basicamente Markdown mas com a possibilidade de usar componentes React quando precisar.
+
+Mais tarde, também integrei o Giscus para ter um sistema de comentários baseado no GitHub Discussions. Achei interessante porque os comentários ficam armazenados no próprio repositório.
+
+## Começando do zero (ou quase)
+
+O primeiro passo é criar um repositório no GitHub com um nome específico: `seuusuario.github.io`. No meu caso ficou `orlandobitencourt.github.io`. Esse nome não é uma sugestão, é obrigatório - é assim que o GitHub identifica que você quer usar o Pages.
+
+Eu não comecei completamente do zero. Encontrei um template Next.js que já tinha uma estrutura básica de blog configurada, o que economizou bastante tempo. Se você quiser começar do zero mesmo, pode usar `npx create-next-app@latest`, mas preparar tudo sozinho vai tomar mais tempo.
+
+## Configurando o Next.js para gerar arquivos estáticos
+
+Aqui mora o segredo da coisa toda. O GitHub Pages só serve arquivos estáticos HTML, CSS e JavaScript. O Next.js normalmente roda como um servidor, mas ele tem um modo de exportação que gera tudo como arquivos estáticos.
+
+No arquivo `next.config.mjs`, você precisa adicionar algumas configurações:
+
+```javascript
+const nextConfig = {
+  output: 'export',
+  images: {
+    unoptimized: true,
+  },
+  basePath: '',
+  trailingSlash: true,
+};
+
+export default nextConfig;
+```
+
+O `output: 'export'` é o que faz a mágica acontecer - ele diz pro Next.js gerar HTML puro ao invés de rodar como servidor. O `images.unoptimized` é necessário porque o sistema de otimização de imagens do Next.js precisa de um servidor rodando, coisa que não temos no GitHub Pages. E o `trailingSlash: true` evita problemas com URLs que às vezes davam 404.
+
+## Organizando os posts
+
+Criei uma pasta `app/blog/posts/` onde coloco todos os arquivos MDX dos posts. Cada arquivo tem um frontmatter no topo com informações do post:
+
+```mdx
+---
+title: "Título do Post"
+date: "2025-11-15"
+description: "Descrição breve"
+thumbnail: "/thumbnails/post.jpg"
+---
+
+# Título do Post
+
+Conteúdo aqui...
+```
+
+Esse formato é bem parecido com Jekyll e outros geradores de site estático, então se você já usou algum, vai se sentir em casa.
+
+## Personalizando o visual
+
+Depois de ter a estrutura básica funcionando, passei um bom tempo ajustando o layout. Melhorei a exibição dos cards de posts na home, ajustei espaçamentos e tamanhos de fonte, adicionei as thumbnails. Também personalizei as informações da bio, coloquei uma foto de perfil decente, configurei um favicon, e ajustei o footer com as informações de copyright.
+
+Uma coisa que percebi é que fazer esses ajustes finos faz muita diferença. O template dá uma base boa, mas são esses pequenos detalhes que fazem o site parecer seu de verdade.
+
+## Configurando o deploy automático
+
+O deploy automático funciona através do GitHub Actions. Toda vez que você dá push na branch `main`, o workflow roda automaticamente e atualiza o site.
+
+Você precisa criar um arquivo `.github/workflows/nextjs.yml` com essa configuração:
+
+```yaml
+name: Deploy Next.js to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build
+        run: npm run build
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+Basicamente o workflow instala as dependências, roda o build do Next.js, pega a pasta `out/` que foi gerada, e faz o deploy. Simples assim.
+
+## Ativando o GitHub Pages
+
+No repositório, você precisa ir em **Settings** > **Pages** e em **Source** selecionar **GitHub Actions**. É só isso. Na primeira vez que você der push, o workflow vai rodar e seu site vai pro ar.
+
+## Adicionando comentários com Giscus
+
+Depois que o básico estava funcionando, decidi adicionar um sistema de comentários. O Giscus usa o GitHub Discussions para armazenar os comentários, o que é interessante porque tudo fica no próprio repositório.
+
+Habilitei o GitHub Discussions no repositório, instalei o app do Giscus, e configurei o componente. Tive que fazer alguns ajustes de estilo para ficar consistente com o tema do site, mas no geral foi bem tranquilo.
+
+## Usando pnpm como gerenciador de pacotes
+
+Uma escolha que fiz foi usar `pnpm` ao invés de `npm`. O pnpm é mais rápido e economiza espaço em disco. Se você for usar também, precisa instalar com `npm install -g pnpm` e criar um arquivo `pnpm-workspace.yaml` na raiz do projeto. Também vai precisar ajustar o workflow do GitHub Actions para usar `pnpm install` ao invés de `npm ci`.
+
+## Problemas que enfrentei
+
+A primeira coisa que quebrou foram as imagens - todas retornavam 404. Demorei um pouco para descobrir que faltava o `images.unoptimized: true` no config. Outro problema foram links que davam 404, resolvido com o `trailingSlash: true`.
+
+Teve uma vez também que o build rodava perfeitamente local mas quebrava no GitHub Actions. Descobri que era porque eu não estava testando o build de produção localmente. Agora sempre rodo `npm run build` e depois `npx serve out` para testar antes de commitar.
+
+## Melhorias contínuas
+
+O legal de ter tudo no Git é que você pode ir fazendo melhorias aos poucos. Depois do deploy inicial, fui refinando o layout, corrigindo textos, ajustando estilos. Cada commit é uma melhoria pequena, mas no fim faz diferença.
+
+## O resultado
+
+No final das contas, o blog ficou no ar em `https://orlandobitencourt.github.io`. Zero custo de hospedagem, deploy automático, e controle total sobre o código. Para um blog pessoal, é exatamente o que eu precisava.
+
+Se você quiser ver o código completo ou usar como referência, está tudo aberto no [GitHub](https://github.com/OrlandoBitencourt/orlandobitencourt.github.io).
+
+---
