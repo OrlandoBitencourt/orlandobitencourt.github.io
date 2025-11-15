@@ -95,11 +95,6 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
       </div>
       <article className="prose">
         <CustomMDX source={post.content} />
-        <Comments 
-          identifier={post.slug}
-          title={`Post: ${post.slug}`}
-          url={url} 
-        />
       </article>
     </section>
   )
