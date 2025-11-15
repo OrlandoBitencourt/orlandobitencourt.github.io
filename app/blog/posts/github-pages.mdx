@@ -5,7 +5,7 @@ description: "Um guia prático de como montei meu blog pessoal usando Next.js e 
 thumbnail: "/thumbnails/github-pages-blog.jpg"
 ---
 
-Depois de procrastinar por alguns meses, finalmente coloquei meu blog no ar usando GitHub Pages. O processo foi mais simples do que eu imaginava, e o melhor: totalmente de graça.
+Depois de procrastinar por algum tempo, finalmente coloquei meu blog no ar usando GitHub Pages. O processo foi mais simples do que eu imaginava, e o melhor: totalmente de graça.
 
 E nada mais justo do que o primeiro post "de verdade" ser sobre como o próprio blog foi feito. É tipo aqueles filmes que falam sobre fazer filmes - uma inception meta que todo dev que cria blog acaba fazendo em algum momento.
 
@@ -15,7 +15,9 @@ Eu poderia ter optado por um VPS tradicional ou algum serviço de hospedagem pag
 
 ## A stack que escolhi
 
-Decidi usar Next.js como framework porque já trabalho com React no dia a dia. O Next.js tem suporte excelente para geração de sites estáticos, que é exatamente o que o GitHub Pages precisa. Adicionei TypeScript para ter tipagem e evitar bugs bobos, Tailwind CSS para estilizar sem escrever CSS puro, e MDX para escrever os posts - que é basicamente Markdown mas com a possibilidade de usar componentes React quando precisar.
+Decidi usar Next.js como framework, mesmo sendo desenvolvedor backend com pouca experiência em frontend. Na verdade, esse projeto foi uma desculpa perfeita para aprender Next.js na prática. O Next.js tem suporte excelente para geração de sites estáticos, que é exatamente o que o GitHub Pages precisa. Adicionei TypeScript para ter tipagem e evitar bugs bobos (vício de backend developer), Tailwind CSS para estilizar sem precisar escrever CSS puro (porque honestamente, CSS nunca foi meu forte), e MDX para escrever os posts - que é basicamente Markdown mas com a possibilidade de usar componentes React quando precisar.
+
+Como não sou expert em frontend, usei o Claude AI para me ajudar com ajustes de layout, CSS e componentes React. Foi especialmente útil para entender as melhores práticas do Tailwind e para criar layouts responsivos sem precisar brigar com CSS puro.
 
 Mais tarde, também integrei o Giscus para ter um sistema de comentários baseado no GitHub Discussions. Achei interessante porque os comentários ficam armazenados no próprio repositório.
 
@@ -53,7 +55,7 @@ Criei uma pasta `app/blog/posts/` onde coloco todos os arquivos MDX dos posts. C
 ```mdx
 ---
 title: "Título do Post"
-date: "2025-11-15"
+publishedAt: "2025-11-15"
 description: "Descrição breve"
 thumbnail: "/thumbnails/post.jpg"
 ---
@@ -64,6 +66,55 @@ Conteúdo aqui...
 ```
 
 Esse formato é bem parecido com Jekyll e outros geradores de site estático, então se você já usou algum, vai se sentir em casa.
+
+## Estrutura do projeto
+
+A organização das pastas ficou assim:
+
+```
+orlandobitencourt.github.io/
+├── .github/
+│   └── workflows/
+│       └── nextjs.yml          # Workflow de deploy
+├── app/
+│   ├── blog/
+│   │   ├── [slug]/
+│   │   │   └── page.tsx        # Página individual de cada post
+│   │   ├── posts/
+│   │   │   ├── hello-world.mdx
+│   │   │   └── github-pages.mdx
+│   │   └── page.tsx            # Listagem de todos os posts
+│   ├── contact/
+│   │   └── page.tsx            # Página de contato
+│   ├── components/
+│   │   ├── comments.tsx        # Componente do Giscus
+│   │   ├── footer.tsx
+│   │   └── header.tsx
+│   ├── layout.tsx              # Layout principal
+│   ├── page.tsx                # Home page
+│   └── globals.css             # Estilos globais
+├── public/
+│   ├── thumbnails/             # Imagens dos posts
+│   ├── profile.jpg
+│   └── favicon.ico
+├── next.config.mjs
+├── package.json
+└── tsconfig.json
+```
+
+A estrutura usa o App Router do Next.js 14, onde cada pasta dentro de `app/` vira uma rota automaticamente. O arquivo `[slug]/page.tsx` é uma rota dinâmica que carrega o post baseado no nome do arquivo MDX.
+
+## Como os posts funcionam
+
+O Next.js lê todos os arquivos `.mdx` da pasta `posts/` durante o build. Para cada arquivo, ele:
+
+1. Extrai os metadados do frontmatter (título, data, descrição, thumbnail)
+2. Converte o Markdown em HTML
+3. Gera uma página estática em `/blog/nome-do-post`
+
+Na listagem de posts (`app/blog/page.tsx` e `app/page.tsx`), o código varre a pasta `posts/`, pega os metadados de cada arquivo, e renderiza os cards com título, data e thumbnail. Quando você clica em um post, ele carrega a página individual que foi gerada estaticamente.
+
+O legal do MDX é que você não está limitado a Markdown puro. Se precisar de algo mais interativo - um gráfico, um componente customizado, qualquer coisa React - você pode simplesmente importar e usar no meio do texto.
 
 ## Personalizando o visual
 
@@ -162,14 +213,14 @@ Se você quiser ver o código completo ou usar como referência, está tudo aber
 
 ---
 
-## Referência
+## Referências
 
 Se quiser se aprofundar ou consultar a documentação oficial:
 
-[Documentação do Next.js sobre Static Exports](https://nextjs.org/docs/app/building-your-application/deploying/static-exports)
-[GitHub Pages Documentation](https://docs.github.com/pt/pages)
-[MDX Documentation](https://mdxjs.com/)
-[Giscus - Sistema de comentários](https://giscus.app/)
-[Tailwind CSS Documentation](https://tailwindcss.com/docs)
+- [Documentação do Next.js sobre Static Exports](https://nextjs.org/docs/app/building-your-application/deploying/static-exports)
+- [GitHub Pages Documentation](https://docs.github.com/pt/pages)
+- [MDX Documentation](https://mdxjs.com/)
+- [Giscus - Sistema de comentários](https://giscus.app/)
+- [Tailwind CSS Documentation](https://tailwindcss.com/docs)
 
 ---
