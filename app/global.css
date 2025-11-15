@@ -149,3 +149,35 @@ table {
 .title {
   text-wrap: balance;
 }
+
+.disqus-container {
+  max-width: 700px;      /* ajuste como quiser */
+  margin: 10 auto;
+  font-size: 0.85rem; /* reduz ~15% */
+  transform: scale(0.95);
+  transform-origin: top center;
+}
+
+#disqus_thread iframe {
+  /* Isto permite aplicar CSS dentro do iframe usando uma técnica de targeting */
+}
+
+#disqus_thread .text-bold.align.align--center.spacing-bottom-small.prompt {
+  display: none !important;
+}
+
+/* Oculta o header do Disqus (incluindo "What do you think?") */
+#disqus_thread iframe {
+  opacity: 0;
+}
+
+#disqus_thread {
+  position: relative;
+}
+
+#disqus_thread::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}

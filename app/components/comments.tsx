@@ -1,25 +1,24 @@
 'use client'
 
-import { useEffect } from 'react'
+import Giscus from '@giscus/react'
 
-export default function Comments({ identifier, title, url }: {
-  identifier: string
-  title: string
-  url: string
-}) {
-  useEffect(() => {
-    const script = document.createElement('script')
-    script.src = 'https://orlandobitencourt.disqus.com/embed.js'
-    script.async = true
-    script.setAttribute('data-timestamp', Date.now().toString())
-
-    document.body.appendChild(script)
-
-    return () => {
-      const el = document.getElementById('dsq-embed-scr')
-      if (el) el.remove()
-    }
-  }, [])
-
-  return <div id="disqus_thread" className="mt-12" />
+export default function Comments() {
+  return (
+    <div className="mt-12">
+      <Giscus
+        id="comments"
+        repo="OrlandoBitencourt/ob-blog-comments"
+        repoId="R_kgDOQU5iGg"
+        category="Comments"
+        categoryId="DIC_kwDOQU5iGs4CxyHO"
+        mapping="pathname"
+        reactionsEnabled="1"
+        emitMetadata="0"
+        inputPosition="bottom"
+        theme="noborder_dark"
+        lang="pt"
+        loading="lazy"
+      />
+    </div>
+  )
 }
