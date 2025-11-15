@@ -13,9 +13,9 @@ export default function Page() {
       </h1>
       <p className="mb-4">
         {`Sou desenvolvedor de software apaixonado por criar, otimizar e explorar novas ideias.
-          Atualmente estou trabalhando na Serasa como desenvolvedor backend senior, desde 2021. 
-          Minhas principais stacks são golang e python, porem eu ja me aventurei com no code 
-          (polêmico hehe) e agora com vibe coding (cursor + claude sonet 4.5 etc).`}
+          Atualmente estou trabalhando na @Serasa como desenvolvedor backend senior, desde 2021. 
+          Minhas principais stacks são golang e python, acredito que as linguagens são apenas 
+          ferramentas para transformar as regras do negocio em codigo e otimizar soluções.`}
       </p>
       <div className="my-8">
         <BlogPosts />
