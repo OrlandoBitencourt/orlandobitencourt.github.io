@@ -24,9 +24,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     image,
   } = post.metadata
 
-  const ogImage = image
-    ? image
-    : `${baseUrl}/og?title=${encodeURIComponent(title)}`
+  // Use the post's image, thumbnail, or a default OG image
+  const ogImage = image 
+    ? `${baseUrl}${image}` 
+    : post.metadata.thumbnail 
+    ? `${baseUrl}${post.metadata.thumbnail}`
+    : `${baseUrl}/default.jpg`
 
   return {
     title,
@@ -69,7 +72,9 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
             description: post.metadata.summary,
             image: post.metadata.image
               ? `${baseUrl}${post.metadata.image}`
-              : `/og?title=${encodeURIComponent(post.metadata.title)}`,
+              : post.metadata.thumbnail
+              ? `${baseUrl}${post.metadata.thumbnail}`
+              : `${baseUrl}/default-og.png`,
             url: `${baseUrl}/blog/${post.slug}`,
             author: {
               '@type': 'Person',
