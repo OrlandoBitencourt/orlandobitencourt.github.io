@@ -1,23 +1,25 @@
 'use client'
+
 import { useEffect } from 'react'
 
-export default function Comments() {
+export default function Comments({ identifier, title, url }: {
+  identifier: string
+  title: string
+  url: string
+}) {
   useEffect(() => {
-    // Evita inserir o script duas vezes
-    const hasUtterances = document.querySelector('script[src="https://utteranc.es/client.js"]')
-    if (hasUtterances) return
-
     const script = document.createElement('script')
-    script.src = 'https://utteranc.es/client.js'
+    script.src = 'https://orlandobitencourt.disqus.com/embed.js'
     script.async = true
-    script.setAttribute('repo', 'OrlandoBitencourt/ob-blog-comments')
-    script.setAttribute('issue-term', 'pathname')
-    script.setAttribute('theme', 'github-dark')
-    script.setAttribute('crossorigin', 'anonymous')
+    script.setAttribute('data-timestamp', Date.now().toString())
 
-    const comments = document.getElementById('comments')
-    comments?.appendChild(script)
+    document.body.appendChild(script)
+
+    return () => {
+      const el = document.getElementById('dsq-embed-scr')
+      if (el) el.remove()
+    }
   }, [])
 
-  return <div id="comments" className="mt-12" />
+  return <div id="disqus_thread" className="mt-12" />
 }
