@@ -52,6 +52,8 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
 
   if (!post) notFound()
 
+  const url = `https://orlandobitencourt.vercel.app/blog/${post.slug}`
+
   return (
     <section>
       <script
@@ -93,7 +95,11 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
       </div>
       <article className="prose">
         <CustomMDX source={post.content} />
-        <Comments />
+        <Comments 
+          identifier={post.slug}
+          title={`Post: ${post.slug}`}
+          url={url} 
+        />
       </article>
     </section>
   )
