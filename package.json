@@ -3,7 +3,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "deploy": "next build && touch out/.nojekyll && git add -f out/ && git commit -m \"Deploy\" && git subtree push --prefix out origin gh-pages"
+  
   },
   "dependencies": {
     "@giscus/react": "^3.1.0",
