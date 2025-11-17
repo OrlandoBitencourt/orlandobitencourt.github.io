@@ -1,14 +1,16 @@
 import Link from 'next/link'
 import { formatDate, getBlogPosts } from 'app/blog/utils'
 
-export function BlogPosts() {
+export function BlogPosts({ limit }: { limit?: number }) {
   let allBlogs = getBlogPosts()
+
+  // Se um limite for especificado, corta o array
+  if (limit) {
+    allBlogs = allBlogs.slice(0, limit)
+  }
 
   return (
     <div>
-      <h2 className="mb-8 text-2xl font-semibold tracking-tighter">
-        Publicações
-      </h2>
       {allBlogs
         .sort((a, b) => {
           if (
@@ -21,27 +23,28 @@ export function BlogPosts() {
         .map((post) => (
           <Link
             key={post.slug}
-            className="block p-4 rounded-xl hover:bg-neutral-950 hover:scale-[1.02] transition-transform border border-neutral-800 mb-4"
+            className="flex flex-col md:flex-row gap-4 mb-6 hover:opacity-80 transition-opacity"
             href={`/blog/${post.slug}`}
           >
-            <div className="w-full flex flex-col md:flex-row space-x-0 md:space-x-2">
-              <div className="flex justify-center">
-                <img
-                  src={post.metadata.thumbnail}
-                  alt={post.metadata.title}
-                  className="h-24 w-auto object-contain"
-                />
-              </div>
-
-              <div className="flex flex-col">
-              <p className="text-sm text-neutral-600 dark:text-neutral-400 tabular-nums">
+            {post.metadata.thumbnail && (
+              <img
+                src={post.metadata.thumbnail}
+                alt={post.metadata.title}
+                className="w-full md:w-48 h-32 object-cover rounded-lg flex-shrink-0"
+              />
+            )}
+            <div className="flex flex-col justify-center">
+              <p className="text-neutral-600 dark:text-neutral-400 text-sm mb-1">
                 {formatDate(post.metadata.publishedAt, false)}
               </p>
-              <p className="text-neutral-900 dark:text-neutral-100 tracking-tight">
+              <h3 className="text-neutral-900 dark:text-neutral-100 font-semibold tracking-tight mb-2">
                 {post.metadata.title}
-              </p>
-              <p className="text-sm text-gray-400">{post.metadata.summary}</p>
-              </div>
+              </h3>
+              {post.metadata.summary && (
+                <p className="text-neutral-600 dark:text-neutral-400 text-sm line-clamp-2">
+                  {post.metadata.summary}
+                </p>
+              )}
             </div>
           </Link>
         ))}

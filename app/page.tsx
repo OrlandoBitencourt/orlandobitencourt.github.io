@@ -1,4 +1,5 @@
 import { BlogPosts } from 'app/components/posts'
+import Link from 'next/link'
 
 export default function Page() {
   return (
@@ -18,7 +19,16 @@ export default function Page() {
           ferramentas para transformar as regras do negocio em codigo e otimizar soluções.`}
       </p>
       <div className="my-8">
-        <BlogPosts />
+        <h2 className="text-xl font-semibold mb-4">Publicações recentes</h2>
+        <BlogPosts limit={5} />
+        <div className="mt-4">
+          <Link 
+            href="/blog" 
+            className="text-neutral-900 dark:text-neutral-100 hover:underline"
+          >
+            Ver todas →
+          </Link>
+        </div>
       </div>
     </section>
   )
