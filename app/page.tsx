@@ -17,6 +17,14 @@ export default function Page() {
           Atualmente estou trabalhando na @Serasa como desenvolvedor backend senior, desde 2021. 
           Minhas principais stacks são golang e python, acredito que as linguagens são apenas 
           ferramentas para transformar as regras do negocio em codigo e otimizar soluções.`}
+          <div className="mt-4">
+          <Link 
+            href="/about" 
+            className="text-neutral-900 dark:text-neutral-100 hover:underline"
+          >
+            Mais sobre mim →
+          </Link>
+        </div>
       </p>
       <div className="my-8">
         <h2 className="text-xl font-semibold mb-4">Publicações recentes</h2>

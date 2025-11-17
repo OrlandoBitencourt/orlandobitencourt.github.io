@@ -3,6 +3,7 @@ import { CustomMDX } from 'app/components/mdx'
 import { formatDate, getBlogPosts } from 'app/blog/utils'
 import { baseUrl } from 'app/sitemap'
 import Comments from 'app/components/comments'
+import AuthorCard from 'app/components/author-card'
 
 export async function generateStaticParams() {
   const posts = getBlogPosts()
@@ -100,6 +101,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
       </div>
       <article className="prose">
         <CustomMDX source={post.content} />
+        <AuthorCard />
         <Comments />
       </article>
     </section>
