@@ -27,7 +27,7 @@ export default function Footer() {
             href="https://github.com/OrlandoBitencourt"
           >
             <ArrowIcon />
-            <p className="ml-2 h-7">github</p>
+            <p className="ml-2 h-7">Github</p>
           </a>
         </li>
         <li>
@@ -38,7 +38,7 @@ export default function Footer() {
             href="https://www.instagram.com/orlando.cechlar/"
           >
             <ArrowIcon />
-            <p className="ml-2 h-7">instagram</p>
+            <p className="ml-2 h-7">Instagram</p>
           </a>
         </li>
         <li>
@@ -49,7 +49,7 @@ export default function Footer() {
             href="https://x.com/orlandocbit"
           >
             <ArrowIcon />
-            <p className="ml-2 h-7">x</p>
+            <p className="ml-2 h-7">X</p>
           </a>
         </li>
         <li>
