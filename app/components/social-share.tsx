@@ -38,7 +38,7 @@ export default function SocialShare({ title, url, description }: SocialShareProp
           href={shareLinks.twitter}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-4 py-2 bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white rounded-lg transition-colors font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100 rounded-lg transition-colors font-medium text-sm"
           aria-label="Compartilhar no Twitter"
         >
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -52,7 +52,7 @@ export default function SocialShare({ title, url, description }: SocialShareProp
           href={shareLinks.linkedin}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-4 py-2 bg-[#0A66C2] hover:bg-[#094d92] text-white rounded-lg transition-colors font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100 rounded-lg transition-colors font-medium text-sm"
           aria-label="Compartilhar no LinkedIn"
         >
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -66,7 +66,7 @@ export default function SocialShare({ title, url, description }: SocialShareProp
           href={shareLinks.whatsapp}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-4 py-2 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-lg transition-colors font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100 rounded-lg transition-colors font-medium text-sm"
           aria-label="Compartilhar no WhatsApp"
         >
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
