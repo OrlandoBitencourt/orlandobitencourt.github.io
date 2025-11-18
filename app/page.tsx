@@ -1,7 +1,11 @@
 import { BlogPosts } from 'app/components/posts'
+import { getBlogPosts, getAllTags } from 'app/blog/utils'
 import Link from 'next/link'
 
 export default function Page() {
+  const posts = getBlogPosts()
+  const allTags = getAllTags()
+
   return (
     <section>
       <img
@@ -17,24 +21,16 @@ export default function Page() {
           Atualmente estou trabalhando na @Serasa como desenvolvedor backend senior, desde 2021. 
           Minhas principais stacks são golang e python, acredito que as linguagens são apenas 
           ferramentas para transformar as regras do negocio em codigo e otimizar soluções.`}
-          <div className="mt-4">
-          <Link 
-            href="/about" 
-            className="text-neutral-900 dark:text-neutral-100 hover:underline"
-          >
-            Mais sobre mim →
-          </Link>
-        </div>
       </p>
       <div className="my-8">
-        <h2 className="text-xl font-semibold mb-4">Publicações recentes</h2>
-        <BlogPosts limit={5} />
+        <h2 className="text-xl font-semibold mb-4">Últimas Publicações</h2>
+        <BlogPosts posts={posts} allTags={allTags} limit={5} />
         <div className="mt-4">
           <Link 
             href="/blog" 
             className="text-neutral-900 dark:text-neutral-100 hover:underline"
           >
-            Ver todas →
+            Ver todas as publicações →
           </Link>
         </div>
       </div>

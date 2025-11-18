@@ -4,6 +4,10 @@ import { formatDate, getBlogPosts } from 'app/blog/utils'
 import { baseUrl } from 'app/sitemap'
 import Comments from 'app/components/comments'
 import AuthorCard from 'app/components/author-card'
+import PostTags from 'app/components/post-tags'
+import SocialShare from 'app/components/social-share'
+import TableOfContents from 'app/components/table-of-contents'
+import RelatedPosts from 'app/components/related-posts'
 
 export async function generateStaticParams() {
   const posts = getBlogPosts()
@@ -58,6 +62,9 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
 
   if (!post) notFound()
 
+  const postUrl = `${baseUrl}/blog/${post.slug}`
+  const allPosts = getBlogPosts()
+
   return (
     <section>
       <script
@@ -76,7 +83,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
               : post.metadata.thumbnail
               ? `${baseUrl}${post.metadata.thumbnail}`
               : `${baseUrl}/default-og.png`,
-            url: `${baseUrl}/blog/${post.slug}`,
+            url: postUrl,
             author: {
               '@type': 'Person',
               name: 'Orlando Cechlar Bitencourt',
@@ -87,23 +94,47 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
       <h1 className="title font-semibold text-2xl tracking-tighter">
         {post.metadata.title}
       </h1>
-      <div className="flex justify-between items-center mt-2 mb-8 text-sm">
+      <div className="flex justify-between items-center mt-2 mb-4 text-sm">
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           Data de publicação: {formatDate(post.metadata.publishedAt)}
         </p>
       </div>
-      <div className="flex">
+      
+      {/* Tags */}
+      {post.metadata.tags && <PostTags tags={post.metadata.tags} />}
+      
+      <div className="flex mb-8">
         <img
           src={post.metadata.thumbnail}
           alt={post.metadata.title}
           className="h-full w-[400px] object-contain"
         />
       </div>
+
+      {/* Table of Contents */}
+      <TableOfContents />
+
       <article className="prose">
         <CustomMDX source={post.content} />
-        <AuthorCard />
-        <Comments />
       </article>
+
+      {/* Social Share */}
+      <SocialShare 
+        title={post.metadata.title} 
+        url={postUrl}
+        description={post.metadata.summary}
+      />
+
+      {/* Comments and Author Card */}
+      <AuthorCard />
+      <Comments />
+
+      {/* Related Posts */}
+      <RelatedPosts 
+        currentSlug={post.slug}
+        currentTags={post.metadata.tags}
+        allPosts={allPosts}
+      />
     </section>
   )
 }

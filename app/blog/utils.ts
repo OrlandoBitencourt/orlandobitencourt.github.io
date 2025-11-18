@@ -6,7 +6,8 @@ type Metadata = {
   publishedAt: string
   summary: string
   image?: string
-  thumbnail: string
+  thumbnail?: string
+  tags?: string[]
 }
 
 function parseFrontmatter(fileContent: string) {
@@ -21,22 +22,38 @@ function parseFrontmatter(fileContent: string) {
     let [key, ...valueArr] = line.split(': ')
     let value = valueArr.join(': ').trim()
     value = value.replace(/^['"](.*)['"]$/, '$1') // Remove quotes
-    metadata[key.trim() as keyof Metadata] = value
+    
+    const trimmedKey = key.trim()
+    
+    // Handle tags array
+    if (trimmedKey === 'tags') {
+      // Check if it's an array format
+      if (value.startsWith('[') && value.endsWith(']')) {
+        metadata.tags = value
+          .slice(1, -1)
+          .split(',')
+          .map(tag => tag.trim().replace(/['"]/g, ''))
+          .filter(Boolean)
+      }
+    } else {
+      // Type assertion to avoid TypeScript errors
+      (metadata as any)[trimmedKey] = value
+    }
   })
 
   return { metadata: metadata as Metadata, content }
 }
 
-function getMDXFiles(dir) {
+function getMDXFiles(dir: string) {
   return fs.readdirSync(dir).filter((file) => path.extname(file) === '.mdx')
 }
 
-function readMDXFile(filePath) {
+function readMDXFile(filePath: string) {
   let rawContent = fs.readFileSync(filePath, 'utf-8')
   return parseFrontmatter(rawContent)
 }
 
-function getMDXData(dir) {
+function getMDXData(dir: string) {
   let mdxFiles = getMDXFiles(dir)
   return mdxFiles.map((file) => {
     let { metadata, content } = readMDXFile(path.join(dir, file))
@@ -54,6 +71,19 @@ export function getBlogPosts() {
   return getMDXData(path.join(process.cwd(), 'app', 'blog', 'posts'))
 }
 
+export function getAllTags() {
+  const posts = getBlogPosts()
+  const tagsSet = new Set<string>()
+  
+  posts.forEach(post => {
+    if (post.metadata.tags) {
+      post.metadata.tags.forEach(tag => tagsSet.add(tag))
+    }
+  })
+  
+  return Array.from(tagsSet).sort()
+}
+
 export function formatDate(date: string, includeRelative = false) {
   let currentDate = new Date()
   if (!date.includes('T')) {
@@ -68,16 +98,16 @@ export function formatDate(date: string, includeRelative = false) {
   let formattedDate = ''
 
   if (yearsAgo > 0) {
-    formattedDate = `${yearsAgo}y ago`
+    formattedDate = `${yearsAgo}a atrás`
   } else if (monthsAgo > 0) {
-    formattedDate = `${monthsAgo}mo ago`
+    formattedDate = `${monthsAgo}m atrás`
   } else if (daysAgo > 0) {
-    formattedDate = `${daysAgo}d ago`
+    formattedDate = `${daysAgo}d atrás`
   } else {
-    formattedDate = 'Today'
+    formattedDate = 'Hoje'
   }
 
-  let fullDate = targetDate.toLocaleString('pt-br', {
+  let fullDate = targetDate.toLocaleDateString('pt-BR', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
