@@ -1,10 +1,11 @@
 import { BlogPosts } from 'app/components/posts'
-import { getBlogPosts, getAllTags } from 'app/blog/utils'
+import { getBlogPosts, getAllTags, getTagCounts } from 'app/blog/utils'
 import Link from 'next/link'
 
 export default function Page() {
   const posts = getBlogPosts()
   const allTags = getAllTags()
+  const tagCounts = getTagCounts()
 
   return (
     <section>
@@ -24,7 +25,7 @@ export default function Page() {
       </p>
       <div className="my-8">
         <h2 className="text-xl font-semibold mb-4">Últimas Publicações</h2>
-        <BlogPosts posts={posts} allTags={allTags} limit={5} />
+        <BlogPosts posts={posts} allTags={allTags} tagCounts={tagCounts} limit={5} />
         <div className="mt-4">
           <Link 
             href="/blog" 

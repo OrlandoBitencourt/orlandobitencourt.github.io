@@ -94,7 +94,7 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
     <div className="my-12">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-          Posts Relacionados
+            Você também pode gostar de:
         </h2>
         
         {/* Navigation Arrows - Desktop */}

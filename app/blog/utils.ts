@@ -84,6 +84,24 @@ export function getAllTags() {
   return Array.from(tagsSet).sort()
 }
 
+export function getTagCounts() {
+  const posts = getBlogPosts()
+  const tagCounts: Record<string, number> = {}
+  
+  posts.forEach(post => {
+    if (post.metadata.tags) {
+      post.metadata.tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1
+      })
+    }
+  })
+  
+  // Adicionar contagem total de posts únicos
+  tagCounts['__total__'] = posts.length
+  
+  return tagCounts
+}
+
 export function formatDate(date: string, includeRelative = false) {
   let currentDate = new Date()
   if (!date.includes('T')) {

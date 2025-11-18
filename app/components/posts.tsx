@@ -20,6 +20,7 @@ interface BlogPostsProps {
   posts: Post[]
   allTags: string[]
   limit?: number
+  tagCounts: Record<string, number>
 }
 
 function formatDate(date: string) {
@@ -31,7 +32,7 @@ function formatDate(date: string) {
   })
 }
 
-export function BlogPosts({ posts, allTags, limit }: BlogPostsProps) {
+export function BlogPosts({ posts, allTags, limit, tagCounts}: BlogPostsProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
 
@@ -85,6 +86,7 @@ export function BlogPosts({ posts, allTags, limit }: BlogPostsProps) {
           onSearch={setSearchQuery}
           onTagFilter={setSelectedTag}
           selectedTag={selectedTag}
+          tagCounts={tagCounts}
         />
       )}
 

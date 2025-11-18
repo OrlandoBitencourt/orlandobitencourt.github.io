@@ -4,12 +4,13 @@ import { useState } from 'react'
 
 interface BlogSearchProps {
   allTags: string[]
+  tagCounts: Record<string, number>
   onSearch: (query: string) => void
   onTagFilter: (tag: string | null) => void
   selectedTag: string | null
 }
 
-export default function BlogSearch({ allTags, onSearch, onTagFilter, selectedTag }: BlogSearchProps) {
+export default function BlogSearch({ allTags, tagCounts, onSearch, onTagFilter, selectedTag }: BlogSearchProps) {
   const [searchQuery, setSearchQuery] = useState('')
 
   const handleSearch = (value: string) => {
@@ -24,6 +25,15 @@ export default function BlogSearch({ allTags, onSearch, onTagFilter, selectedTag
       onTagFilter(tag)
     }
   }
+
+  // Calcular total de posts
+  const totalPosts = Object.values(tagCounts).reduce((sum, count) => {
+    // Evitar contar duplicados (um post pode ter múltiplas tags)
+    return sum
+  }, 0)
+
+  // Contar posts únicos
+  const uniquePostsCount = tagCounts['__total__'] || 0
 
   return (
     <div className="mb-8">
@@ -89,6 +99,9 @@ export default function BlogSearch({ allTags, onSearch, onTagFilter, selectedTag
               }`}
             >
               Todas
+              <span className="ml-1.5 text-xs opacity-80">
+                ({uniquePostsCount})
+              </span>
             </button>
             {allTags.map((tag) => (
               <button
@@ -101,6 +114,9 @@ export default function BlogSearch({ allTags, onSearch, onTagFilter, selectedTag
                 }`}
               >
                 {tag}
+                <span className="ml-1.5 text-xs opacity-80">
+                  ({tagCounts[tag] || 0})
+                </span>
               </button>
             ))}
           </div>
