@@ -30,7 +30,7 @@ export default function SocialShare({ title, url, description }: SocialShareProp
   return (
     <div className="my-8 py-6 border-y border-neutral-200 dark:border-neutral-800">
       <h3 className="text-lg font-semibold mb-4 text-neutral-900 dark:text-neutral-100">
-        Compartilhe este post
+        Compartilhe este artigo
       </h3>
       <div className="flex flex-wrap gap-3">
         {/* Twitter */}

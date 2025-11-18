@@ -118,6 +118,9 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         <CustomMDX source={post.content} />
       </article>
 
+      {/* Author Card */}
+      <AuthorCard />
+
       {/* Social Share */}
       <SocialShare 
         title={post.metadata.title} 
@@ -125,8 +128,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         description={post.metadata.summary}
       />
 
-      {/* Comments and Author Card */}
-      <AuthorCard />
+      {/* Comments */}
       <Comments />
 
       {/* Related Posts */}

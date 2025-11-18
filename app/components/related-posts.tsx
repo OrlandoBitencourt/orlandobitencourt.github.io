@@ -93,9 +93,9 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
   return (
     <div className="my-12">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+        <h3 className="text-lg font-semibold mb-4 text-neutral-900 dark:text-neutral-100">
             Você também pode gostar de:
-        </h2>
+        </h3>
         
         {/* Navigation Arrows - Desktop */}
         {relatedPosts.length > cardsToShow && (
