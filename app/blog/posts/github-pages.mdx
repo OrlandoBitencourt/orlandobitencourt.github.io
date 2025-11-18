@@ -72,36 +72,7 @@ Esse formato é bem parecido com Jekyll e outros geradores de site estático, en
 
 A organização das pastas ficou assim:
 
-```
-orlandobitencourt.github.io/
-├── .github/
-│   └── workflows/
-│       └── nextjs.yml          # Workflow de deploy
-├── app/
-│   ├── blog/
-│   │   ├── [slug]/
-│   │   │   └── page.tsx        # Página individual de cada post
-│   │   ├── posts/
-│   │   │   ├── hello-world.mdx
-│   │   │   └── github-pages.mdx
-│   │   └── page.tsx            # Listagem de todos os posts
-│   ├── contact/
-│   │   └── page.tsx            # Página de contato
-│   ├── components/
-│   │   ├── comments.tsx        # Componente do Giscus
-│   │   ├── footer.tsx
-│   │   └── header.tsx
-│   ├── layout.tsx              # Layout principal
-│   ├── page.tsx                # Home page
-│   └── globals.css             # Estilos globais
-├── public/
-│   ├── thumbnails/             # Imagens dos posts
-│   ├── profile.jpg
-│   └── favicon.ico
-├── next.config.mjs
-├── package.json
-└── tsconfig.json
-```
+![imagem](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-11-17-github-pages/organizacao.png)
 
 A estrutura usa o App Router do Next.js 14, onde cada pasta dentro de `app/` vira uma rota automaticamente. O arquivo `[slug]/page.tsx` é uma rota dinâmica que carrega o post baseado no nome do arquivo MDX.
 

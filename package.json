@@ -5,7 +5,6 @@
     "build": "next build",
     "start": "next start",
     "deploy": "next build && touch out/.nojekyll && git add -f out/ && git commit -m \"Deploy\" && git subtree push --prefix out origin gh-pages"
-  
   },
   "dependencies": {
     "@giscus/react": "^3.1.0",
@@ -21,6 +20,7 @@
     "postcss": "^8.4.35",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-syntax-highlighter": "^16.1.0",
     "sugar-high": "^0.6.0",
     "tailwindcss": "4.0.0-alpha.13",
     "typescript": "5.3.3"
