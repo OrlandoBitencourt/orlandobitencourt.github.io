@@ -13,7 +13,7 @@ export default function Page() {
   return (
     <section>
       <h1 className="font-semibold text-2xl mb-8 tracking-tighter">
-        Meu Blog
+        Publicações
       </h1>
       <BlogPosts posts={posts} allTags={allTags} />
     </section>
