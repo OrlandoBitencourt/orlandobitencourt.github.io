@@ -12,7 +12,7 @@ export default function NotFound() {
       {/* Imagem 404 */}
       <div className="mb-8">
         <img
-          src="/404.jpg"
+          src="https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/404.jpg"
           alt="Página não encontrada"
           className="w-13 h-auto rounded-lg shadow-lg"
         />
