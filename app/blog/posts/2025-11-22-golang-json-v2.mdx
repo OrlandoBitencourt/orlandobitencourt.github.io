@@ -1,0 +1,358 @@
+---
+title: "Go 1.25: A Nova Era do JSON"
+publishedAt: "2025-11-22"
+summary: "Benchmark comparando a v1 e v2 do encoding/json do golang, novidade da 1.25"
+thumbnail: "/thumbnails/encoding-json.jpg"
+tags: [Go, '1.25', Back-end, Performance]
+---
+
+Quem trabalha com Go conhece bem a limitação do `encoding/json`. O pacote sempre funcionou, mas era lento. Aí você ia atrás de alternativas: `jsoniter`, `easyjson`, `ffjson`. Cada uma com seus problemas.
+
+Depois de mais de dez anos, o Go 1.25 trouxe uma reescrita completa do pacote JSON. A v2 chegou em agosto de 2025 como feature experimental e resolve boa parte dos problemas antigos.
+
+## Por Que Precisávamos Disso?
+
+APIs que processam milhares de requests por segundo sentiam o peso, por mais leve e performatico que o go seja, streaming de logs gigantes era complicado. E controle sobre parsing? Tinha que implementar na mão.
+
+Validar campos duplicados no JSON? Impossível nativamente. Processar um arquivo JSON de 2GB sem estourar memória? Boa sorte. A comunidade criou bibliotecas externas porque o pacote padrão não dava conta.
+
+## Como Funciona o Experimento
+
+O time do Go usou a variável `GOEXPERIMENT` para testar a nova implementação. Quando você compila com `GOEXPERIMENT=jsonv2`, duas coisas acontecem.
+
+Primeiro, você ganha acesso a dois pacotes novos: `encoding/json/v2` (implementação completa) e `encoding/json/jsontext` (processamento de baixo nível).
+
+Segundo, o `encoding/json` original passa a usar a nova implementação por baixo. Você pode testar a v2 sem reescrever código. Marshals e unmarshals funcionam igual, só que mais rápido. Único detalhe: mensagens de erro podem mudar.
+
+## O Que Mudou?
+
+A API do v2 tem mais opções de configuração. Aceitar UTF-8 inválido? Pode. Bloquear campos desconhecidos? Também. Validar campos duplicados? Agora sim.
+
+O `encoding/json/v2` não é só uma otimização. É uma revisão pensando nos casos de uso reais dos últimos anos. O `encoding/json/jsontext` dá controle de baixo nível quando você precisa.
+
+Processar um arquivo de logs de 2GB linha por linha ficou mais natural. Antes você tinha que implementar soluções próprias. Agora funciona direto.
+
+## Os Números Não Mentem
+
+Depois de rodar os benchmarks com dados reais, algumas coisas ficaram claras. Primeiro, a documentação oficial estava certa: encoding (marshal) ficou equivalente, e decoding (unmarshal) melhorou substancialmente.
+
+Mas "equivalente" esconde um detalhe interessante. O marshal do v2 ficou entre 4% a 7% mais lento em termos de tempo bruto. Mas usa 27-30% menos memória e faz metade das alocações. É um trade-off que pode valer a pena dependendo do seu caso de uso. Se você tem uma aplicação que sofre com garbage collection, essa redução de alocações pode compensar os milissegundos extras.
+
+Já o unmarshal é outra história. O v2 é consistentemente 1.7x a 2x mais rápido. No payload pequeno, foi 2x mais rápido. No médio, 1.84x. E no grande, 1.72x. E isso mantendo uso de memória similar ou menor. Se você consome muitas APIs ou processa JSONs de entrada, esses ganhos são significativos.
+
+O que mais me impressionou foi a consistência. Os ganhos se mantêm independente do tamanho do payload. Não é aquele caso onde funciona bem só pra payloads pequenos ou só pra grandes. O v2 entrega performance melhor em todos os cenários de unmarshal que testei.
+
+### Resultados Detalhados
+
+Aqui estão os números completos dos benchmarks. Cada teste rodou por 10 segundos para garantir estabilidade nos resultados:
+
+#### Marshal (Serialização - Go → JSON)
+
+![imagem Marshal](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-11-22-encoding-json/marshal.jpg)
+
+#### Unmarshal (Desserialização - JSON → Go)
+
+![imagem Unmarshal](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-11-22-encoding-json/unmarshal.jpg)
+
+**Observações importantes:**
+
+- **Marshal**: Tempo 4-7% maior no V2, mas economia de 26-30% em memória e 44-45% em alocações
+- **Unmarshal**: Ganho consistente de 72% a 106% em velocidade, com menos alocações em todos os cenários
+- **Throughput estimado** (Large): V1 processa ~14.6 MB/s em unmarshal, V2 processa ~25.3 MB/s
+
+Os números de "allocs/op" (alocações por operação) são especialmente importantes. Menos alocações significa menos trabalho para o garbage collector, resultando em latências mais previsíveis e menos pausas em aplicações de alta carga.
+
+## Testando na Prática
+
+Montar um benchmark decente exige usar dados que fazem sentido. Esqueça aqueles exemplos de tutorial com `{"name": "John"}`. Usei estruturas de usuário completas, com perfil, timestamps, roles, metadados, informações que remetem cenarios reais.
+
+### Estrutura do Projeto
+
+Primeiro, criei uma estrutura de projeto simples:
+
+![Estrutura do Projeto](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-11-22-encoding-json/benchmark-three.png)
+
+### Modelos de Dados
+
+Usei modelos realistas que você encontraria em qualquer aplicação:
+
+```go
+package models
+
+import "time"
+
+type User struct {
+    ID        int       `json:"id"`
+    Username  string    `json:"username"`
+    Email     string    `json:"email"`
+    FirstName string    `json:"first_name"`
+    LastName  string    `json:"last_name"`
+    Active    bool      `json:"active"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+    Profile   Profile   `json:"profile"`
+    Roles     []string  `json:"roles"`
+}
+
+type Profile struct {
+    Bio      string            `json:"bio"`
+    Avatar   string            `json:"avatar"`
+    Location string            `json:"location"`
+    Website  string            `json:"website"`
+    Metadata map[string]string `json:"metadata"`
+}
+
+type LogEntry struct {
+    Timestamp time.Time              `json:"timestamp"`
+    Level     string                 `json:"level"`
+    Service   string                 `json:"service"`
+    Message   string                 `json:"message"`
+    Context   map[string]interface{} `json:"context"`
+    TraceID   string                 `json:"trace_id"`
+}
+```
+
+### Gerando os Dados de Teste
+
+Criei um gerador que produz dados consistentes e realistas:
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "math/rand"
+    "os"
+    "time"
+    
+    "github.com/seu-usuario/json-benchmark/models"
+)
+
+func main() {
+    rand.Seed(time.Now().UnixNano())
+    
+    // Pequeno: 1 usuário
+    small := generateUsers(1)
+    saveJSON("testdata/small.json", small)
+    
+    // Médio: 100 usuários
+    medium := generateUsers(100)
+    saveJSON("testdata/medium.json", medium)
+    
+    // Grande: 10.000 usuários
+    large := generateUsers(10000)
+    saveJSON("testdata/large.json", large)
+    
+    // Logs em JSONL
+    logs := generateLogs(1000)
+    saveJSONLines("testdata/logs.jsonl", logs)
+}
+
+func generateUsers(count int) []models.User {
+    users := make([]models.User, count)
+    for i := 0; i < count; i++ {
+        users[i] = models.User{
+            ID:        i + 1,
+            Username:  fmt.Sprintf("user%d", i+1),
+            Email:     fmt.Sprintf("user%d@example.com", i+1),
+            FirstName: randomName(),
+            LastName:  randomName(),
+            Active:    rand.Intn(2) == 1,
+            CreatedAt: randomDate(),
+            UpdatedAt: time.Now(),
+            Profile: models.Profile{
+                Bio:      randomBio(),
+                Avatar:   fmt.Sprintf("https://avatar.example.com/%d", i+1),
+                Location: randomLocation(),
+                Website:  fmt.Sprintf("https://user%d.example.com", i+1),
+                Metadata: map[string]string{
+                    "theme":    randomTheme(),
+                    "language": "pt-BR",
+                    "timezone": "UTC-3",
+                },
+            },
+            Roles: randomRoles(),
+        }
+    }
+    return users
+}
+```
+
+Para gerar os dados:
+
+```bash
+go run main.go
+```
+
+### Implementando os Benchmarks
+
+O código de benchmark é direto e usa a biblioteca padrão de testes do Go:
+
+```go
+package benchmarks
+
+import (
+    "encoding/json"
+    "os"
+    "testing"
+    
+    "github.com/seu-usuario/json-benchmark/models"
+)
+
+var (
+    smallUsers  []models.User
+    mediumUsers []models.User
+    largeUsers  []models.User
+    smallData   []byte
+    mediumData  []byte
+    largeData   []byte
+)
+
+func init() {
+    // Carregar dados uma vez no início
+    smallData, _ = os.ReadFile("../testdata/small.json")
+    json.Unmarshal(smallData, &smallUsers)
+    
+    mediumData, _ = os.ReadFile("../testdata/medium.json")
+    json.Unmarshal(mediumData, &mediumUsers)
+    
+    largeData, _ = os.ReadFile("../testdata/large.json")
+    json.Unmarshal(largeData, &largeUsers)
+}
+
+func BenchmarkMarshalSmall(b *testing.B) {
+    b.ReportAllocs()
+    for i := 0; i < b.N; i++ {
+        json.Marshal(smallUsers)
+    }
+}
+
+func BenchmarkUnmarshalSmall(b *testing.B) {
+    b.ReportAllocs()
+    for i := 0; i < b.N; i++ {
+        var users []models.User
+        json.Unmarshal(smallData, &users)
+    }
+}
+
+// ... benchmarks para Medium e Large
+```
+
+### Executando os Testes
+
+A execução foi feita em duas etapas: primeiro sem o GOEXPERIMENT (V1), depois com (V2):
+
+```bash
+# Limpar cache para resultados precisos
+go clean -testcache
+
+# V1 - encoding/json tradicional
+go test ./benchmarks -bench=Benchmark -benchmem -benchtime=10s -run=^$ > v1_results.txt
+
+# V2 - com jsonv2 experimental
+export GOEXPERIMENT=jsonv2
+go test ./benchmarks -bench=Benchmark -benchmem -benchtime=10s -run=^$ > v2_results.txt
+
+# Comparar resultados
+go install golang.org/x/perf/cmd/benchstat@latest
+benchstat v1_results.txt v2_results.txt
+```
+
+O flag `-benchtime=10s` garante que cada benchmark rode por 10 segundos, dando resultados mais estáveis. O `-run=^$` evita rodar testes unitários, focando apenas nos benchmarks.
+
+### Ambiente de Teste
+
+Os testes foram executados em:
+- **CPU**: AMD Ryzen 5 5600G (12 threads)
+- **MEMORIA**: 16GB RAM
+- **OS**: Windows 10
+- **Go**: 1.25.4
+- **Condições**: Sistema limpo, sem outras cargas pesadas rodando
+
+Criei três cenários diferentes pra ter uma visão mais completa. O primeiro é pequeno, só um usuário, aquele tipo de payload que você manda num POST simples. O segundo é médio, uns 100 usuários, parecido com o que você retornaria numa listagem paginada. E o terceiro é grande de verdade: 10 mil usuários, pra simular aqueles exports ou processamentos em batch que a gente vive fazendo.
+
+### Marshal: Transformando Go em JSON
+
+Quando você faz um `json.Marshal`, o que tá rolando por baixo dos panos é uma análise de todas as structs, reflection pra acessar os campos, e a conversão de cada tipo Go pro formato JSON. É muita coisa acontecendo.
+
+No v1, esse processo sempre foi meio pesado. Você percebia principalmente quando tinha que serializar listas grandes ou structs muito aninhadas. O v2 otimizou essa parte, mas de forma inteligente - mantendo a compatibilidade e o comportamento esperado.
+
+Nos meus testes, descobri algo interessante. O v2 ficou entre 4% a 7% mais lento no marshal em termos de tempo puro. Sim, você leu certo. Mas antes de ficar decepcionado, olha o outro lado da moeda: a v2 usa de 27% a 30% menos memória e faz 44% a 45% menos alocações.
+
+No payload pequeno (um usuário), o v1 levou 1.984ns contra 2.125ns do v2. No payload médio (100 usuários), foram 182.266ns contra 190.923ns. E no grande (10 mil usuários), 19ms contra 19,8ms. A diferença de tempo é pequena, mas a economia de memória é real. O v1 alocou 8.2MB no teste grande, enquanto o v2 ficou em 6MB. São quase 2MB a menos, com metade das alocações.
+
+O que isso significa na prática? Menos pressão no garbage collector. Aplicações que fazem muito marshal podem se beneficiar dessa redução de alocações, mesmo que o tempo de cada operação seja ligeiramente maior. É um trade-off interessante.
+
+### Unmarshal: De Volta pro Go
+
+Fazer unmarshal sempre foi a operação mais cara. Você tem que validar se o JSON tá bem formado, fazer o parsing, e ainda mapear tudo de volta pras structs do Go. É naturalmente mais lento que marshal.
+
+E é exatamente aqui que o v2 realmente entrega. A documentação oficial deixa claro: a decodificação é substancialmente mais rápida na nova implementação. E os números comprovam.
+
+No payload pequeno, o v1 levou 6.868ns enquanto o v2 fez em 3.338ns. Mais que o dobro da velocidade. No médio, foram 678.536ns contra 367.802ns - uma melhoria de 84%. E no grande? O v1 precisou de 68ms, enquanto o v2 resolveu em 39ms. Isso é 72% mais rápido, quase metade do tempo.
+
+E não para por aí. As alocações de memória também caíram drasticamente. No teste grande, o v1 fez 240 mil alocações contra 154 mil do v2. A quantidade de memória usada também diminuiu, de 18.7MB pra 17.4MB.
+
+Teve um caso específico que me impressionou: quando o JSON tem muitos campos aninhados e maps. Sabe aquele `map[string]interface{}` que a gente usa quando o schema é meio imprevisível? Pois é, o v2 lida com isso de forma muito mais eficiente. As alocações ficam mais controláveis e a performance mais previsível. Se você trabalha com APIs que recebem muito JSON, esses números fazem diferença no mundo real.
+
+### Streaming: Processamento Eficiente
+
+Aqui é onde você realmente percebe a diferença de ter uma implementação moderna. Streaming de JSON sempre foi possível no Go, mas a nova implementação traz melhorias na eficiência - principalmente quando combinada com os ganhos de unmarshal.
+
+Fiz um teste com um arquivo JSONL (aqueles com um JSON por linha, tipo logs) de 1000 entradas. É o tipo de coisa que você faz quando tá processando logs da aplicação ou consumindo dados de um stream qualquer. Como o streaming usa unmarshal internamente, os ganhos que vimos antes se aplicam aqui também.
+
+A diferença não é só em velocidade. É em uso de memória também. O v2 consegue processar o stream de forma mais inteligente, o que é exatamente o que você quer quando tá lidando com arquivos grandes ou streams contínuos. Se você processa logs em tempo real ou faz ETL de JSONs grandes, vai sentir a diferença.
+
+## Vale a Pena Migrar?
+
+Para projetos novos, sim. Compile com `GOEXPERIMENT=jsonv2` e aproveite os ganhos de performance sem mudar código.
+
+Para projetos em produção, é preciso avaliar. O v2 ainda é experimental, significa que algumas coisas ainda podem mudar. Para sistemas críticos, vale esperar mais feedback da comunidade.
+
+Mas você pode testar agora. Compile com a flag experimental, rode seus benchmarks, veja os números. Quando sair do status experimental (provavelmente Go 1.26 ou 1.27), você já testou e sabe o que esperar.
+
+Como o `encoding/json` usa a nova implementação quando você ativa o GOEXPERIMENT, dá para testar sem mudar uma linha de código. Só compilar e rodar.
+
+## Novas Opções de Configuração
+
+O v2 adicionou opções que o `encoding/json` precisava há anos.
+
+Campos duplicados no JSON? Antes o último valor sobrescrevia o primeiro, sem aviso. Agora você decide se isso é erro ou não. Útil quando você consome JSON de fontes externas e quer validação mais estrita.
+
+UTF-8 inválido? Você escolhe ser estrito ou não. Sistemas legados às vezes mandam JSON com encoding zoado. Poder lidar com isso de forma controlada é melhor que simplesmente falhar.
+
+## Comparando com Bibliotecas Externas
+
+O `jsoniter` sempre foi popular por ser mais rápido que o `encoding/json` original. Com o v2, a diferença diminuiu - principalmente no unmarshaling.
+
+O `easyjson` continua sendo o mais rápido porque usa code generation. Mas ter que gerar código não é prático. O v2 entrega performance boa sem precisar mudar de biblioteca.
+
+O repositório [github.com/go-json-experiment/jsonbench](https://github.com/go-json-experiment/jsonbench) tem análises detalhadas de performance.
+
+Para a maioria dos casos, o v2 resolve. Só vale pensar em alternativas se performance for absolutamente crítica e você aceitar a complexidade de code generation.
+
+## Testando Você Mesmo
+
+Testar é simples. Não precisa refatorar código ou instalar bibliotecas. É só uma flag na compilação:
+
+```bash
+GOEXPERIMENT=jsonv2 go test ./... -bench=. -benchmem
+```
+
+Compare com a versão normal e veja os números. Se encontrar bugs, reporte na [issue oficial](https://github.com/golang/go/issues/71497) - o time do Go quer esse feedback.
+
+## O Futuro
+
+O status experimental significa que o design pode evoluir. A [proposta oficial](https://github.com/golang/go/issues/71497) deixa isso claro. Feedback da comunidade vai influenciar o resultado final.
+
+[Meu repositório de benchmarks](https://github.com/OrlandoBitencourt/golang1.25-json-benchmark)
+
+---
+
+## Referências
+
+- [Go 1.25 Release Notes - JSON v2](https://go.dev/doc/go1.25#json_v2)
+- [Proposta Oficial do encoding/json/v2](https://github.com/golang/go/issues/71497)
+- [Repositório de Benchmarks Oficiais](https://github.com/go-json-experiment/jsonbench)
+- [Documentação do GOEXPERIMENT](https://pkg.go.dev/runtime#hdr-Environment_Variables)
