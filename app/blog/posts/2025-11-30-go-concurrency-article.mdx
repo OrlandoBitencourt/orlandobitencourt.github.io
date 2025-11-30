@@ -1,0 +1,651 @@
+---
+title: Concorrência em Go: Patterns que funcionam e armadilhas
+publishedAt: "2025-11-30"
+summary: "Patterns práticos de concorrência em Go e armadilhas comuns que causam bugs em produção. Baseado em experiência real com goroutines, channels, context e ferramentas como race detector e IA para code review."
+thumbnail: "/thumbnails/concorrencia-em-go.jpg"
+tags: [Go, Concorrência, Back-end, Best Practices]
+---
+
+Trabalho com Go há alguns anos, e se tem uma feature que ao mesmo tempo impressiona e assusta é a concorrência. Goroutines são incrivelmente poderosas quando bem usadas. Mas quando mal implementadas, viram um pesadelo de debugging em produção.
+
+Este artigo reúne os patterns que uso no dia a dia e, mais importante, as armadilhas que já me custaram horas de investigação. Tudo aqui vem de código real, não de exemplos de tutorial.
+
+## Goroutines são baratas, mas não ilimitadas
+
+Uma das primeiras coisas que você aprende em Go é que goroutines são leves. Você pode criar milhares delas sem problemas. A parte que ninguém enfatiza: isso não significa que deveria.
+
+### O erro comum
+
+```go
+func processarPedidos(pedidos []Pedido) {
+    for _, pedido := range pedidos {
+        go processar(pedido)
+    }
+}
+```
+
+Esse código parece inocente. Mas imagine receber 50 mil pedidos simultaneamente. Você acabou de criar 50 mil goroutines de uma vez. O consumo de memória dispara, o scheduler fica sobrecarregado, e o servidor pode crashar.
+
+Já vi esse padrão causar incidentes em produção mais de uma vez. A solução não é complicada, mas exige disciplina.
+
+### Worker Pool: controle sobre concorrência
+
+```go
+func processarPedidosComWorkerPool(pedidos []Pedido, numWorkers int) error {
+    jobs := make(chan Pedido, len(pedidos))
+    results := make(chan error, len(pedidos))
+    
+    // Número fixo de workers
+    for w := 0; w < numWorkers; w++ {
+        go worker(jobs, results)
+    }
+    
+    // Envia os jobs
+    for _, pedido := range pedidos {
+        jobs <- pedido
+    }
+    close(jobs)
+    
+    // Coleta resultados
+    var errs []error
+    for i := 0; i < len(pedidos); i++ {
+        if err := <-results; err != nil {
+            errs = append(errs, err)
+        }
+    }
+    
+    return errors.Join(errs...)
+}
+
+func worker(jobs <-chan Pedido, results chan<- error) {
+    for pedido := range jobs {
+        err := processar(pedido)
+        results <- err
+    }
+}
+```
+
+Esse pattern resolve o problema. Você define exatamente quantos workers quer (geralmente entre 10 e 50, dependendo do caso), e eles processam uma fila de jobs. Controle total, comportamento previsível.
+
+## Channels precisam ser fechados
+
+### Goroutine leak por channel aberto
+
+```go
+func buscarDados() <-chan Data {
+    ch := make(chan Data)
+    go func() {
+        for i := 0; i < 10; i++ {
+            ch <- fetchData(i)
+        }
+        // Esqueci de close(ch)
+    }()
+    return ch
+}
+```
+
+O problema: quem está lendo do outro lado nunca sabe que os dados acabaram. O loop fica bloqueado esperando mais dados que nunca chegam. A goroutine continua rodando indefinidamente. É um leak de memória e recursos.
+
+### Sempre feche channels
+
+```go
+func buscarDados(ctx context.Context) <-chan Data {
+    ch := make(chan Data)
+    go func() {
+        defer close(ch)
+        
+        for i := 0; i < 10; i++ {
+            select {
+            case <-ctx.Done():
+                return
+            case ch <- fetchData(i):
+            }
+        }
+    }()
+    return ch
+}
+```
+
+O `defer close(ch)` garante que o channel será fechado independente de como a função terminar. E o select com `ctx.Done()` permite cancelamento externo.
+
+## Context: a ferramenta que demorei para valorizar
+
+Levei tempo para entender a importância do Context. Hoje, qualquer função que faz I/O ou pode demorar recebe um Context como primeiro parâmetro.
+
+### Sem Context, sem controle
+
+```go
+func processarArquivo(url string) error {
+    resp, err := http.Get(url)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+    
+    return processarConteudo(resp.Body)
+}
+```
+
+Já tive um caso onde um arquivo corrompido travou esse código por horas. A goroutine ficou bloqueada até reiniciar o servidor. Não havia forma de cancelar ou adicionar timeout.
+
+### Context dá controle
+
+```go
+func processarArquivo(ctx context.Context, url string) error {
+    ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+    
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+    if err != nil {
+        return err
+    }
+    
+    client := &http.Client{Timeout: 10 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+    
+    return processarConteudoComContext(ctx, resp.Body)
+}
+```
+
+Agora há timeout definido. Se algo demorar demais, o context cancela automaticamente. E o cancelamento se propaga para todas as operações que usam esse context.
+
+## Select: orquestrando múltiplos channels
+
+### Fan-in: agregando de múltiplas fontes
+
+```go
+func buscarDeMultiplasFontes(ctx context.Context) ([]Resultado, error) {
+    c1 := buscarDeBancoDados(ctx)
+    c2 := buscarDeCache(ctx)
+    c3 := buscarDeAPI(ctx)
+    
+    resultados := make([]Resultado, 0)
+    
+    for i := 0; i < 3; i++ {
+        select {
+        case r := <-c1:
+            resultados = append(resultados, r)
+        case r := <-c2:
+            resultados = append(resultados, r)
+        case r := <-c3:
+            resultados = append(resultados, r)
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        }
+    }
+    
+    return resultados, nil
+}
+```
+
+Esse pattern é útil quando você precisa buscar dados de várias fontes em paralelo e agregar os resultados.
+
+### Pipeline: processamento em etapas
+
+```go
+func pipeline(ctx context.Context, nums []int) <-chan int {
+    // Stage 1: Gerar números
+    gen := func() <-chan int {
+        out := make(chan int)
+        go func() {
+            defer close(out)
+            for _, n := range nums {
+                select {
+                case out <- n:
+                case <-ctx.Done():
+                    return
+                }
+            }
+        }()
+        return out
+    }
+    
+    // Stage 2: Multiplicar por 2
+    mult := func(in <-chan int) <-chan int {
+        out := make(chan int)
+        go func() {
+            defer close(out)
+            for n := range in {
+                select {
+                case out <- n * 2:
+                case <-ctx.Done():
+                    return
+                }
+            }
+        }()
+        return out
+    }
+    
+    // Stage 3: Filtrar múltiplos de 4
+    filter := func(in <-chan int) <-chan int {
+        out := make(chan int)
+        go func() {
+            defer close(out)
+            for n := range in {
+                if n%4 == 0 {
+                    select {
+                    case out <- n:
+                    case <-ctx.Done():
+                        return
+                    }
+                }
+            }
+        }()
+        return out
+    }
+    
+    return filter(mult(gen()))
+}
+```
+
+Pipelines são elegantes quando você precisa processar dados em etapas e quer tudo rodando em paralelo. Mas admito que na maioria dos casos é over-engineering. Use quando realmente fizer sentido.
+
+## WaitGroup: a ordem importa
+
+### Erro clássico
+
+```go
+func processarEmParalelo(items []Item) {
+    var wg sync.WaitGroup
+    
+    for _, item := range items {
+        go func(i Item) {
+            wg.Add(1) // ERRADO
+            defer wg.Done()
+            processar(i)
+        }(item)
+    }
+    
+    wg.Wait()
+}
+```
+
+O problema: o `Wait()` pode executar antes da goroutine chamar `Add(1)`. Resultado: panic ou término prematuro.
+
+### Sempre Add() antes de Go()
+
+```go
+func processarEmParalelo(items []Item) {
+    var wg sync.WaitGroup
+    
+    for _, item := range items {
+        wg.Add(1)
+        go func(i Item) {
+            defer wg.Done()
+            processar(i)
+        }(item)
+    }
+    
+    wg.Wait()
+}
+```
+
+A ordem é crítica. Sempre adicione ao contador antes de criar a goroutine.
+
+## Errgroup: WaitGroup com tratamento de erros
+
+```go
+import "golang.org/x/sync/errgroup"
+
+func processarLoteComErros(ctx context.Context, items []Item) error {
+    g, ctx := errgroup.WithContext(ctx)
+    g.SetLimit(10)
+    
+    for _, item := range items {
+        item := item
+        g.Go(func() error {
+            return processarComContext(ctx, item)
+        })
+    }
+    
+    return g.Wait()
+}
+```
+
+Errgroup é WaitGroup com superpoderes. Gerencia erros automaticamente e cancela tudo no primeiro erro. O `SetLimit` controla quantas goroutines rodam simultaneamente.
+
+## Rate Limiting: respeitando limites de APIs
+
+### Com Ticker
+
+```go
+func chamarAPIComRateLimit(ctx context.Context, requests []Request) error {
+    limiter := time.NewTicker(100 * time.Millisecond)
+    defer limiter.Stop()
+    
+    for _, req := range requests {
+        select {
+        case <-limiter.C:
+            if err := fazerRequest(ctx, req); err != nil {
+                return err
+            }
+        case <-ctx.Done():
+            return ctx.Err()
+        }
+    }
+    
+    return nil
+}
+```
+
+### Com channel (mais flexível)
+
+```go
+func criarRateLimiter(requestsPerSecond int) chan struct{} {
+    limiter := make(chan struct{}, requestsPerSecond)
+    
+    go func() {
+        ticker := time.NewTicker(time.Second / time.Duration(requestsPerSecond))
+        defer ticker.Stop()
+        
+        for range ticker.C {
+            select {
+            case limiter <- struct{}{}:
+            default:
+            }
+        }
+    }()
+    
+    return limiter
+}
+```
+
+Rate limiters já me salvaram de estourar quotas de APIs externas várias vezes.
+
+## Armadilhas que aparecem em code review
+
+### Loop variable não capturada
+
+```go
+// BUG - aparece toda semana em code review
+for _, user := range users {
+    go func() {
+        processarUser(user) // user será sempre o último do loop
+    }()
+}
+
+// CORRETO - opção 1
+for _, user := range users {
+    user := user
+    go func() {
+        processarUser(user)
+    }()
+}
+
+// CORRETO - opção 2 (prefiro esta)
+for _, user := range users {
+    go func(u User) {
+        processarUser(u)
+    }(user)
+}
+```
+
+Esse é provavelmente o bug mais comum em código Go concorrente. A variável do loop é reutilizada em cada iteração.
+
+### Deadlock com channel sem buffer
+
+```go
+// Trava para sempre
+func buscarDados() Data {
+    ch := make(chan Data)
+    ch <- fetchData() // Bloqueia esperando um receiver
+    return <-ch
+}
+
+// Com buffer funciona (mas é desnecessário usar channel aqui)
+func buscarDados() Data {
+    ch := make(chan Data, 1)
+    ch <- fetchData()
+    return <-ch
+}
+
+// Melhor solução: sem channel
+func buscarDados() Data {
+    return fetchData()
+}
+```
+
+Channels sem buffer bloqueiam até ter alguém do outro lado. Se você está sozinho, espera para sempre.
+
+### Race condition em append
+
+```go
+func processarLote(items []Item) error {
+    var wg sync.WaitGroup
+    errs := make([]error, 0)
+    
+    for _, item := range items {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            if err := processar(item); err != nil {
+                errs = append(errs, err) // Race condition
+            }
+        }()
+    }
+    
+    wg.Wait()
+    return errors.Join(errs...)
+}
+```
+
+Múltiplas goroutines escrevendo no mesmo slice simultaneamente causa race condition. Use um channel para coletar erros de forma segura.
+
+## Ferramentas essenciais
+
+### Race Detector
+
+```bash
+go test -race ./...
+go run -race main.go
+```
+
+Execute sempre com `-race` em testes. Essa ferramenta já me salvou de subir bugs graves para produção inúmeras vezes.
+
+### Go vet e staticcheck
+
+```bash
+go vet ./...
+staticcheck ./...
+```
+
+Detectam problemas comuns como loop variables não capturadas.
+
+### pprof para detectar goroutine leaks
+
+```go
+import _ "net/http/pprof"
+```
+
+Deixo isso rodando em produção. Quando o número de goroutines não para de crescer, você sabe que tem problema.
+
+### Cursor com Claude Sonnet 4.5
+
+Recentemente comecei a usar o Cursor com Claude Sonnet 4.5 para revisar código concorrente antes de commitar. A ferramenta se mostrou surpreendentemente eficaz.
+
+#### Como uso no dia a dia
+
+Seleciono o código no Cursor e peço:
+
+```code
+Revise este código Go para race conditions, goroutine leaks e deadlocks. 
+Seja específico sobre os problemas.
+```
+
+A IA identifica bem:
+- Channels não fechados
+- WaitGroup.Add() após Go()
+- Loop variables não capturadas
+- Ausência de context
+- Deadlocks potenciais
+
+#### Exemplo real
+
+Escrevi este código:
+
+```go
+func processarLote(items []Item) error {
+    var wg sync.WaitGroup
+    errs := make([]error, 0)
+    
+    for _, item := range items {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            if err := processar(item); err != nil {
+                errs = append(errs, err)
+            }
+        }()
+    }
+    
+    wg.Wait()
+    return errors.Join(errs...)
+}
+```
+
+O Cursor identificou imediatamente dois problemas: loop variable não capturada e race condition no append. Sugeriu a correção:
+
+```go
+func processarLote(items []Item) error {
+    var wg sync.WaitGroup
+    errCh := make(chan error, len(items))
+    
+    for _, item := range items {
+        item := item
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            if err := processar(item); err != nil {
+                errCh <- err
+            }
+        }()
+    }
+    
+    wg.Wait()
+    close(errCh)
+    
+    var errs []error
+    for err := range errCh {
+        errs = append(errs, err)
+    }
+    return errors.Join(errs...)
+}
+```
+
+#### Template de prompt que uso
+
+```md
+Analise este código Go e identifique:
+
+1. Race conditions
+2. Goroutine leaks
+3. Deadlocks
+4. Falta de context
+5. Concorrência sem limite
+6. Problemas com channels
+7. Loop variables não capturadas
+
+Para cada problema, mostre a linha e sugira correção.
+
+[código aqui]
+```
+
+#### Arquivo .cursorrules para Go
+
+O Cursor permite criar um arquivo `.cursorrules` na raiz do projeto com regras específicas. Isso melhora significativamente a qualidade das sugestões.
+
+Meu `.cursorrules` para projetos Go:
+
+```md
+# Go Development Rules
+
+## Concurrency Rules (CRITICAL)
+- ALWAYS use context.Context as first parameter for I/O or long operations
+- NEVER create unbounded goroutines - use worker pools with fixed size
+- ALWAYS close channels with defer close() in the goroutine that writes
+- Call WaitGroup.Add() BEFORE launching goroutines, never inside them
+- Capture loop variables before using in goroutines: item := item
+- Use errgroup instead of WaitGroup when functions return errors
+- Add timeouts to all HTTP calls and database operations
+- Ensure every goroutine has a way to terminate
+
+## Code Style
+- Use short variable names (i, j for indices, err for errors, ctx for context)
+- Prefer table-driven tests
+- Use early returns to reduce nesting
+- Don't use else after return
+- Keep functions small and focused
+
+## Error Handling
+- Always check errors, never use _ to ignore them
+- Wrap errors with context: fmt.Errorf("failed to X: %w", err)
+- Use errors.Is() and errors.As() for error comparison
+- Don't panic in library code, return errors
+
+## Performance
+- Use sync.Pool for frequently allocated objects
+- Prefer value receivers unless modifying the receiver
+- Be careful with defer in loops
+- Use buffered channels when appropriate
+
+## Testing
+- Run tests with -race flag ALWAYS
+- Use t.Parallel() for independent tests
+- Mock external dependencies
+- Use testify/assert for cleaner assertions
+
+## When Suggesting Concurrency
+- Ask if concurrency is needed before adding it
+- Start simple, add concurrency only if clear benefit
+- Explain tradeoffs (complexity vs performance)
+```
+
+Depois de adicionar esse arquivo, as sugestões melhoraram consideravelmente. A IA para de sugerir código que eu rejeitaria em code review.
+
+#### Limitações importantes
+
+A IA não substitui o race detector. Ela pode perder race conditions sutis.
+
+Às vezes sugere soluções complexas demais. Sempre valido se a sugestão faz sentido.
+
+Minha abordagem:
+1. Análise manual
+2. Revisão da IA
+3. Race detector
+4. Code review do time
+
+## Checklist para code review
+
+Quando reviso código com concorrência, verifico:
+
+- Toda goroutine tem forma de terminar?
+- Todos os channels são fechados?
+- Há limite de concorrência?
+- Context usado em operações de I/O?
+- WaitGroup.Add() antes de Go()?
+- Loop variables capturadas corretamente?
+- Timeouts definidos?
+- Buffer nos channels está correto?
+
+## O que aprendi
+
+Concorrência em Go é poderosa mas exige disciplina. Os patterns e armadilhas que mostrei aqui vêm de experiência real - bugs em produção, madrugadas debugando, incidentes que poderiam ter sido evitados.
+
+Regras que sigo:
+
+1. Nem tudo precisa ser concorrente - código sequencial é mais simples
+2. Use patterns estabelecidos - worker pools, errgroup
+3. Context em tudo que faz I/O
+4. Limite concorrência - nunca crie goroutines ilimitadas
+5. Feche seus channels com defer
+6. Sempre rode testes com -race
+
+Go torna concorrência acessível. Mas acessível não significa que você pode sair fazendo qualquer coisa. Esses patterns funcionam. As armadilhas são reais.
+
+---
+
+*Se você tem experiências com concorrência em Go, seria interessante trocar ideias. Deixe um comentário.*
