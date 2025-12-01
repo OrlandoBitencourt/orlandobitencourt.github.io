@@ -31,25 +31,37 @@ function formatDate(date: string) {
 
 export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }: RelatedPostsProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [cardsToShow, setCardsToShow] = useState(3)
+  const [cardsToShow, setCardsToShow] = useState(1)
+  const [isMounted, setIsMounted] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Atualizar número de cards visíveis baseado no tamanho da tela
   useEffect(() => {
+    setIsMounted(true)
+    
     const updateCardsToShow = () => {
-      if (window.innerWidth < 640) {
-        setCardsToShow(1)
-      } else if (window.innerWidth < 1024) {
-        setCardsToShow(2)
+      const width = window.innerWidth
+      let newCardsToShow = 1
+      
+      if (width > 640) {
+        newCardsToShow = 2
       } else {
-        setCardsToShow(3)
+        newCardsToShow = 1
       }
+      
+      console.log('Window width:', width, 'Cards to show:', newCardsToShow)
+      setCardsToShow(newCardsToShow)
     }
 
     updateCardsToShow()
     window.addEventListener('resize', updateCardsToShow)
     return () => window.removeEventListener('resize', updateCardsToShow)
   }, [])
+
+  // Reset currentIndex quando muda o número de cards visíveis
+  useEffect(() => {
+    setCurrentIndex(0)
+  }, [cardsToShow])
 
   // Calcular posts relacionados
   const relatedPosts = allPosts
@@ -77,6 +89,64 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
 
   if (relatedPosts.length === 0) return null
 
+  // Não renderizar até montar no cliente para evitar hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="my-12">
+        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-6">
+          Você também pode gostar de:
+        </h3>
+        <div className="flex gap-4 overflow-hidden">
+          {relatedPosts.slice(0, 1).map((post) => (
+            <div key={post.slug} className="w-full flex-shrink-0">
+              <div className="bg-neutral-50 dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden h-full">
+                {post.metadata.thumbnail && (
+                  <div className="relative h-40 overflow-hidden">
+                    <img
+                      src={post.metadata.thumbnail}
+                      alt={post.metadata.title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="p-4">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+                    {formatDate(post.metadata.publishedAt)}
+                  </p>
+                  <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 mb-2 line-clamp-2">
+                    {post.metadata.title}
+                  </h3>
+                  {post.metadata.summary && (
+                    <p className="text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2 mb-3">
+                      {post.metadata.summary}
+                    </p>
+                  )}
+                  {post.metadata.tags && post.metadata.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {post.metadata.tags.slice(0, 2).map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs font-medium"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {post.metadata.tags.length > 2 && (
+                        <span className="px-2 py-0.5 bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded text-xs">
+                          +{post.metadata.tags.length - 2}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   const maxIndex = Math.max(0, relatedPosts.length - cardsToShow)
 
   const handlePrev = () => {
@@ -93,8 +163,8 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
   return (
     <div className="my-12">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold mb-4 text-neutral-900 dark:text-neutral-100">
-            Você também pode gostar de:
+        <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          Você também pode gostar de:
         </h3>
         
         {/* Navigation Arrows - Desktop */}
@@ -135,9 +205,10 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
       {/* Carousel Container */}
       <div className="relative overflow-hidden" ref={containerRef}>
         <div
-          className="flex transition-transform duration-500 ease-out gap-4"
+          className="flex transition-transform duration-500 ease-out"
           style={{
-            transform: `translateX(-${currentIndex * (100 / cardsToShow)}%)`,
+            gap: '16px',
+            transform: `translateX(calc(-${currentIndex * (100 / cardsToShow)}% - ${currentIndex * 16}px))`,
           }}
         >
           {relatedPosts.map((post) => (
@@ -145,7 +216,9 @@ export default function RelatedPosts({ currentSlug, currentTags = [], allPosts }
               key={post.slug}
               href={`/blog/${post.slug}`}
               className="flex-shrink-0 group"
-              style={{ width: `calc(${100 / cardsToShow}% - ${(cardsToShow - 1) * 16 / cardsToShow}px)` }}
+              style={{ 
+                width: `calc(${100 / cardsToShow}% - ${((cardsToShow - 1) / cardsToShow) * 16}px)`
+              }}
             >
               <div className="bg-neutral-50 dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden h-full hover:shadow-lg transition-all duration-300 hover:border-blue-500 dark:hover:border-blue-500">
                 {/* Thumbnail */}
