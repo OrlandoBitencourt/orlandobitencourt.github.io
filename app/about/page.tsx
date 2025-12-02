@@ -77,67 +77,67 @@ export default function AboutPage() {
         </h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-neutral-50 dark:bg-neutral-900 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
+          <div className="bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold mb-3 text-neutral-900 dark:text-neutral-100">Linguagens</h3>
             <div className="flex flex-wrap gap-2">
               <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Golang
               </span>
-              <span className="px-3 py-1.5 bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Python
               </span>
-              <span className="px-3 py-1.5 bg-purple-500/20 text-purple-700 dark:text-purple-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 SQL
               </span>
             </div>
           </div>
 
-          <div className="bg-neutral-50 dark:bg-neutral-900 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
+          <div className="bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold mb-3 text-neutral-900 dark:text-neutral-100">Cloud & DevOps</h3>
             <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1.5 bg-orange-500/20 text-orange-700 dark:text-orange-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 AWS
               </span>
               <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Docker
               </span>
-              <span className="px-3 py-1.5 bg-green-500/20 text-green-700 dark:text-green-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Rancher
               </span>
             </div>
           </div>
 
-          <div className="bg-neutral-50 dark:bg-neutral-900 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
+          <div className="bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold mb-3 text-neutral-900 dark:text-neutral-100">Bancos de Dados</h3>
             <div className="flex flex-wrap gap-2">
               <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 PostgreSQL
               </span>
-              <span className="px-3 py-1.5 bg-orange-500/20 text-orange-700 dark:text-orange-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 DynamoDB
               </span>
-              <span className="px-3 py-1.5 bg-teal-500/20 text-teal-700 dark:text-teal-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 ElasticSearch
               </span>
-              <span className="px-3 py-1.5 bg-red-500/20 text-red-700 dark:text-red-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Oracle
               </span>
             </div>
           </div>
 
-          <div className="bg-neutral-50 dark:bg-neutral-900 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
+          <div className="bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800">
             <h3 className="font-semibold mb-3 text-neutral-900 dark:text-neutral-100">Monitoramento & Tools</h3>
             <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1.5 bg-purple-500/20 text-purple-700 dark:text-purple-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Datadog
               </span>
-              <span className="px-3 py-1.5 bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Dynatrace
               </span>
-              <span className="px-3 py-1.5 bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Kibana
               </span>
-              <span className="px-3 py-1.5 bg-green-500/20 text-green-700 dark:text-green-400 rounded-md text-sm font-medium">
+              <span className="px-3 py-1.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-md text-sm font-medium">
                 Splunk
               </span>
             </div>
@@ -148,7 +148,7 @@ export default function AboutPage() {
       {/* Philosophy Section */}
       <div className="mb-12 bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 p-6 rounded-lg border border-blue-200 dark:border-blue-900">
         <h2 className="text-xl font-semibold mb-4 text-neutral-900 dark:text-neutral-100">
-          💡 Filosofia de Trabalho
+          Filosofia de Trabalho
         </h2>
         <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
           Acredito que as linguagens de programação são apenas <strong>ferramentas</strong> para 
@@ -164,7 +164,7 @@ export default function AboutPage() {
 
       {/* CTA Section */}
       <div className="text-center py-8 px-6 bg-gradient-to-r from-neutral-50 to-indigo-50 dark:from-neutral-950/30 dark:to-indigo-950/30 rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <h2 className="text-xl font-semibold mb-3">🤝 Vamos conversar?</h2>
+        <h2 className="text-xl font-semibold mb-3">Vamos conversar?</h2>
         <p className="text-neutral-600 dark:text-neutral-400 mb-5">
           Estou sempre aberto a novas oportunidades e colaborações
         </p>
