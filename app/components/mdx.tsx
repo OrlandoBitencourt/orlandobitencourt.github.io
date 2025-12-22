@@ -1,6 +1,7 @@
 import { MDXRemote } from 'next-mdx-remote/rsc'
 import CodeBlock from './code-block'
 import ExecutableCode from './executable-code'
+import BarChart from './bar-chart'
 
 function Table({ data }: { data: { headers: string[]; rows: string[][] } }) {
   let headers = data.headers.map((header, index) => (
@@ -83,6 +84,7 @@ let components = {
   code: Code,
   pre: Pre,
   ExecutableCode,
+  BarChart,
 }
 
 export function CustomMDX(props: any) {
