@@ -1,5 +1,6 @@
 import { MDXRemote } from 'next-mdx-remote/rsc'
 import CodeBlock from './code-block'
+import ExecutableCode from './executable-code'
 
 function Table({ data }: { data: { headers: string[]; rows: string[][] } }) {
   let headers = data.headers.map((header, index) => (
@@ -81,6 +82,7 @@ let components = {
   Table,
   code: Code,
   pre: Pre,
+  ExecutableCode,
 }
 
 export function CustomMDX(props: any) {
