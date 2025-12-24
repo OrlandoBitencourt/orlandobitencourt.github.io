@@ -2,6 +2,8 @@ import { MDXRemote } from 'next-mdx-remote/rsc'
 import CodeBlock from './code-block'
 import ExecutableCode from './executable-code'
 import BarChart from './bar-chart'
+import { MermaidDiagram } from './mermaid-diagram'
+import { ComparisonTable } from './comparison-table'
 
 function Table({ data }: { data: { headers: string[]; rows: string[][] } }) {
   let headers = data.headers.map((header, index) => (
@@ -85,6 +87,8 @@ let components = {
   pre: Pre,
   ExecutableCode,
   BarChart,
+  MermaidDiagram,
+  ComparisonTable,
 }
 
 export function CustomMDX(props: any) {
