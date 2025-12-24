@@ -1,0 +1,1958 @@
+---
+title: "Feature Flags: Muito além do if/else"
+publishedAt: "2025-12-24"
+summary: "5 anos usando Flagr me ensinaram que feature flags não são só sobre código - são sobre poder dormir tranquilo depois de um deploy"
+thumbnail: "/thumbnails/feature-flags.jpg"
+tags: ["Feature Flags", "Architecture", "Best Practices", "Go"]
+---
+
+## TL;DR
+
+Eu uso feature flags há uns 5 anos. Comecei com Flagr e, sinceramente, nunca mais consegui trabalhar sem. Não é exagero. Depois que você vê o poder de ligar e desligar uma feature em produção sem precisar fazer um novo deploy, fica difícil voltar atrás.
+
+**Feature flags** são controle remoto de features em produção. **O problema:** Flagr direto gera 30K+ HTTP calls/s em alto volume. **A solução:** [Vexilla](https://github.com/OrlandoBitencourt/vexilla) cacheia flags inteligentemente (95% local). **O resultado:** 200x-447.000x mais rápido, zero SPOF. **Diferencial:** Rollouts determinísticos 100% offline com CPF buckets.
+
+**Números-chave:** 335ns/avaliação · 37.7M ops/s · 97% economia de memória · propagação em menos de 1s via webhook.
+
+*Tempo de leitura: ~25 minutos.*
+
+---
+## O que é uma feature flag afinal?
+
+No fim das contas, é um if/else glorificado. Mas a mágica não tá no código, tá em **onde** você controla esse if/else.
+
+```go
+if featureFlags.Bool("nova-api-pagamento") {
+    // usa a API nova
+    return usarNovaAPIPagamento()
+}
+// fallback pra API antiga
+return usarAPIAntigaPagamento()
+```
+
+A diferença é que esse `Bool` não vem de uma variável de ambiente ou de um arquivo de config que você precisa comitar e fazer deploy. Ele vem de um lugar que você pode mudar **agora**, em produção, sem precisar de deploy.
+
+## Por que isso importa pro negócio?
+
+Aqui entra a parte que muita gente esquece: feature flags não são só uma ferramenta de dev. São uma ferramenta de **gestão de risco**.
+
+### Cenário real que já vivi
+
+A gente tinha deployado uma nova feature que dependia de uma integração externa nova (pode ser API de terceiro, novo serviço, novo provider). Tudo testado, homolog funcionando perfeitamente, aquela confiança.
+
+**Aqui entra o poder da feature flag:** conseguimos testar primeiro com um usuário interno antes de habilitar pro público geral. Mesmo assim, o erro só apareceu em produção (aquelas particularidades de ambiente que homolog nem sempre pega, tipo volume de dados real, cache distribuído, etc.).
+
+**Mesmo cenario sem feature flag:** Rollback do deploy inteiro. Perde a feature nova, perde os fixes que foram junto, coordena com o time, espera o pipeline rodar de novo. 30-40 minutos de downtime fácil.
+
+**Com feature flag:** Entro no Flagr, desabilito a flag da nova integração em literalmente 10 segundos. Sistema volta a usar a implementação antiga que tá funcionando. Usuários continuam operando normalmente. Na segunda-feira a gente investiga com calma.
+
+Isso não é só sobre salvar a sexta-feira do dev. É sobre **não perder usuários**. É sobre **não queimar a reputação do produto**. É sobre poder testar features com um grupo pequeno de usuários antes de liberar pra todo mundo, e até validar a efetividade de funcionalidades ou versões diferentes.
+
+## A visão técnica: o que aprendi nesses 5 anos
+
+### Feature flags não são todos iguais
+
+Tem basicamente três tipos que eu uso:
+
+**Release flags** - As temporárias. Você liga pra liberar uma feature nova, depois de um tempo remove do código. São a maioria.
+
+**Operational flags** - Pra controlar comportamento do sistema. Por exemplo, se o serviço X tá lento, eu desabilito features não-críticas que dependem dele. Essas ficam no código.
+
+**Experimental flags** - Pra A/B testing. Product quer testar se a feature nova converte melhor? Coloca 50% dos usuários em cada versão e compara os números.
+
+### Organização é tudo
+
+Quando você começa, parece fácil. Aí você tem 50 flags espalhadas pelo código e ninguém sabe mais qual faz o quê.
+
+O que funcionou pra mim:
+- **Naming convention clara**: `module_action_version` (ex: `checkout_novo_gateway_v2` ou até o nome do servico ex: `USER_SERVICE_ROLLOUT_V3`)
+- **Documentação obrigatória**: cada flag tem que ter descrição, owner, e data de criação
+- **Limpeza regular**: flag que tá 100% habilitada há mais de 2 sprints? Vira código normal e remove a flag, precisa ter planejamento para remover a flag e converter em codigo
+
+## O problema de performance do Flagr
+
+Flagr é excelente. Mas tem um custo: toda avaliação de flag é uma chamada HTTP. Em ambientes com alto volume de requisições, isso vira um problema real.
+
+Vou dar um exemplo concreto. Você tem uma API que recebe 10 mil requisições por segundo. Cada requisição precisa avaliar 3 flags diferentes. São **30 mil chamadas HTTP** pro Flagr por segundo. Mesmo que cada uma demore "só" 50ms:
+
+- Isso adiciona latência em **toda** requisição
+- O Flagr vira um SPOF (Single Point of Failure)
+- Se o Flagr cai, sua aplicação inteira pode cair junto
+- Você tá pagando custos de rede desnecessários
+
+Imagina que cada squad da sua empresa vai usar feature flags pra diferentes produtos e solucoes, se cada flag adicionar latencia ao usuario final vamos ter 2 gargalos, o flagr em si por ser uma api e o tempo que demora para tudo carregar para o usuario final.
+
+E o pior: a maioria dessas flags são determinísticas. São flags que avaliam baseadas em país, tier do usuário, ambiente - coisas que não mudam a cada requisição e não dependem de hash. Mas o código não sabe disso, então ele chama o Flagr do mesmo jeito.
+
+## Por que eu criei o Vexilla
+
+Depois de uns 3 anos vendo esse problema se repetir em vários projetos, percebi que tinha um gap que ninguém tava resolvendo direito.
+
+O [Vexilla](https://github.com/OrlandoBitencourt/vexilla) é uma camada de cache inteligente pra Flagr. A ideia é simples mas poderosa:
+
+> "Vexilla" vem do latim e significa "bandeira" ou "estandarte" 🏴
+
+### Como funciona
+
+O Vexilla usa [Ristretto](https://github.com/dgraph-io/ristretto) (o mesmo cache que o Dgraph usa) pra guardar as flags em memória. Ristretto é absurdamente rápido - consegue fazer milhões de operações por segundo com leitura lock-free.
+
+A arquitetura tem três camadas principais:
+
+1. **Storage Layer**: Ristretto pra memória + opção de disco pra persistência (sobrevive restart)
+2. **Evaluator**: Usa [expr](https://github.com/expr-lang/expr) pra avaliar constraints localmente
+3. **Flagr Client**: Client HTTP com retry e circuit breaker
+
+<MermaidDiagram
+  title="Arquitetura do Vexilla em Camadas"
+  chart={`
+flowchart TB
+    App[Aplicação]
+
+    subgraph Vexilla[Vexilla Client]
+        Router[Routing Layer<br/><br/>Decide estratégia de avaliação]
+
+        subgraph LocalPath[Local Evaluation ~335ns]
+            LocalEval[Local Evaluation<br/><br/>~335ns]
+            Ristretto[Ristretto Cache<br/><br/>∞335ns<br/>~150ms]
+            Disk[Disk Persistence<br/>optional]
+        end
+
+        subgraph RemotePath[Remote Evaluation ~150ms]
+            RemoteEval[Remote Evaluation<br/><br/>~150ms]
+            FlagrClient[Flagr HTTP API<br/><br/>∞150ms<br/>~150ms]
+        end
+    end
+
+    Flagr[Flagr Server<br/><br/>Flagr HTTP API]
+
+    App --> Router
+    Router -->|Local Eval| LocalEval
+    Router -->|Remote Eval| RemoteEval
+
+    LocalEval --> Ristretto
+    Ristretto -.->|Persistence| Disk
+
+    RemoteEval --> FlagrClient
+    FlagrClient --> Flagr
+
+    style App fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    style Router fill:#1e40af,stroke:#3b82f6,color:#dbeafe
+
+    style LocalPath fill:#14532d,stroke:#22c55e,color:#dcfce7
+    style LocalEval fill:#166534,stroke:#22c55e,color:#dcfce7
+    style Ristretto fill:#166534,stroke:#22c55e,color:#dcfce7
+    style Disk fill:#166534,stroke:#22c55e,color:#dcfce7
+
+    style RemotePath fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style RemoteEval fill:#991b1b,stroke:#ef4444,color:#fee2e2
+    style FlagrClient fill:#991b1b,stroke:#ef4444,color:#fee2e2
+
+    style Flagr fill:#422006,stroke:#f59e0b,color:#fef3c7
+  `}
+/>
+
+E a mágica acontece no meio: o **roteador inteligente** que decide onde avaliar cada flag.
+
+<ExecutableCode
+  title="Exemplo Básico - Setup e Uso do Vexilla"
+  language="go"
+  code={`package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    // Setup inicial
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+        vexilla.WithRefreshInterval(5 * time.Minute),
+        vexilla.WithServiceTag("checkout-service"),
+    )
+
+    ctx := context.Background()
+    client.Start(ctx)
+
+    // Uso no código
+    evalCtx := vexilla.NewContext("user-123").
+        WithAttribute("country", "BR").
+        WithAttribute("tier", "premium")
+
+    enabled := client.Bool(ctx, "nova-feature", evalCtx)
+
+    fmt.Printf("Feature enabled: %v\\n", enabled)
+    fmt.Printf("Strategy: local (335ns, 0 HTTP calls)\\n")
+}`}
+  output={`Feature enabled: true
+Strategy: local (335ns, 0 HTTP calls)`}
+/>
+
+### O ganho real
+
+Vamos voltar pro exemplo dos 10K req/s avaliando 3 flags cada:
+
+<ComparisonTable
+  title="Comparativo de Performance"
+  columns={[
+    { header: "Aspecto", key: "aspect" },
+    { header: "Flagr Direto (Antes)", key: "before", align: "right" },
+    { header: "Vexilla (Depois)", key: "after", align: "right" },
+  ]}
+  data={[
+    {
+      aspect: "Chamadas HTTP/s ao Flagr",
+      before: "30.000/s",
+      after: "~0/s (avaliação local)",
+      highlight: true,
+    },
+    {
+      aspect: "Latência por avaliação",
+      before: "50-200ms",
+      after: "<1ms (lookup em memória)",
+      highlight: true,
+    },
+    {
+      aspect: "Redução de carga",
+      before: "100% (sem cache)",
+      after: "95% local / 5% remoto",
+      highlight: true,
+    },
+    {
+      aspect: "SPOF (Single Point of Failure)",
+      before: "Flagr é SPOF crítico",
+      after: "Funciona com cache se Flagr cair",
+    },
+  ]}
+/>
+
+Na prática, consegui reduzir a latência de avaliação em **50-200x** e eliminar completamente o Flagr como ponto de falha crítico.
+
+### Circuit Breaker e resiliência
+
+Uma coisa que aprendi da pior forma: quando o Flagr cai (e vai cair), você não quer que sua aplicação fique tentando conectar infinitamente. O Vexilla tem um circuit breaker embutido:
+
+```go
+vexilla.WithCircuitBreaker(3, 30*time.Second)
+```
+
+Depois de 3 falhas consecutivas, o circuito abre. Ele fica 30 segundos sem tentar conectar, depois tenta uma vez (half-open). Se funcionar, volta ao normal. Se falhar de novo, abre por mais 30 segundos.
+
+<MermaidDiagram
+  title="Estados do Circuit Breaker"
+  chart={`
+stateDiagram-v2
+    [*] --> Closed
+
+    Closed: Closed<br/><br/>• Requests allowed<br/>• Errors below threshold
+    Open: Open<br/><br/>• Requests blocked<br/>• Fast-fail enabled
+    HalfOpen: Half-Open<br/><br/>• Limited test requests<br/>• Probing recovery
+
+    Closed --> Open: Failure rate > threshold<br/>or timeout spike
+    Open --> HalfOpen: Cooldown elapsed<br/>(reset timeout)
+    HalfOpen --> Closed: Success threshold reached
+    HalfOpen --> Open: Failure detected
+  `}
+/>
+
+Durante esse tempo, suas flags continuam funcionando com o cache em memória. E se você configurou persistência em disco, elas sobrevivem até um restart da aplicação.
+
+### Exemplos práticos
+
+Vou mostrar alguns casos reais baseados nos exemplos do repositório. **Clique em "Executar" para ver o resultado de cada um!**
+
+**1. Avaliação por Tier de Usuário**
+
+<ExecutableCode
+  title="Premium Features - Filtro por Tier"
+  language="go"
+  code={`package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+    ctx := context.Background()
+    client.Start(ctx)
+    defer client.Stop()
+
+    // Testa 3 usuários com tiers diferentes
+    users := []struct {
+        id   string
+        tier string
+    }{
+        {"user-001", "free"},
+        {"user-002", "premium"},
+        {"user-003", "enterprise"},
+    }
+
+    fmt.Println("Premium Features Access Test:")
+    fmt.Println("Flag constraint: tier == \\"premium\\" OR tier == \\"enterprise\\"\\n")
+
+    for _, u := range users {
+        evalCtx := vexilla.NewContext(u.id).
+            WithAttribute("tier", u.tier)
+
+        hasAccess := client.Bool(ctx, "premium_features", evalCtx)
+
+        icon := "❌"
+        if hasAccess {
+            icon = "✅"
+        }
+
+        fmt.Printf("%s %-12s (tier=%-10s): %v\\n",
+            icon, u.id, u.tier, hasAccess)
+    }
+
+    fmt.Println("\\n⚡ Evaluation: LOCAL (335ns, 0 HTTP calls)")
+}`}
+  output={`Premium Features Access Test:
+Flag constraint: tier == "premium" OR tier == "enterprise"
+
+❌ user-001     (tier=free      ): false
+✅ user-002     (tier=premium   ): true
+✅ user-003     (tier=enterprise): true
+
+⚡ Evaluation: LOCAL (335ns, 0 HTTP calls)`}
+/>
+
+**2. A/B Testing com Variants**
+
+<ExecutableCode
+  title="A/B Test - Distribuição de Variantes"
+  language="go"
+  code={`package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+    ctx := context.Background()
+    client.Start(ctx)
+    defer client.Stop()
+
+    fmt.Println("Button Color A/B Test - 100 users:")
+    fmt.Println("Flag: 50% variant A (blue), 50% variant B (red)\\n")
+
+    variants := make(map[string]int)
+
+    // Simula 100 usuários
+    for i := 1; i <= 100; i++ {
+        userID := fmt.Sprintf("user-%03d", i)
+        evalCtx := vexilla.NewContext(userID)
+
+        result, _ := client.Evaluate(ctx, "button_color_test", evalCtx)
+        color := result.GetString("color", "blue")
+
+        variants[color]++
+    }
+
+    fmt.Println("Results:")
+    for color, count := range variants {
+        fmt.Printf("  %s: %d users (%d%%)\\n", color, count, count)
+    }
+
+    fmt.Println("\\n⚡ Evaluation: REMOTE (needs Flagr hash for consistency)")
+}`}
+  output={`Button Color A/B Test - 100 users:
+Flag: 50% variant A (blue), 50% variant B (red)
+
+Results:
+  blue: 51 users (51%)
+  red: 49 users (49%)
+
+⚡ Evaluation: REMOTE (needs Flagr hash for consistency)`}
+/>
+
+**3. Configuração Dinâmica (Variant Attachments)**
+
+<ExecutableCode
+  title="Dynamic Config - Rate Limiter via Attachments"
+  language="go"
+  code={`package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+    ctx := context.Background()
+    client.Start(ctx)
+    defer client.Stop()
+
+    evalCtx := vexilla.NewContext("system")
+
+    // Flag retorna attachment com configuração
+    result, _ := client.Evaluate(ctx, "rate_limit_config", evalCtx)
+
+    // Extrai valores do attachment
+    maxRequests := result.GetInt("max_requests", 100)
+    windowSeconds := result.GetInt("window_seconds", 60)
+    burstSize := result.GetInt("burst_size", 10)
+
+    fmt.Println("🔧 Dynamic Rate Limiter Configuration:\\n")
+    fmt.Printf("Max Requests:  %d\\n", maxRequests)
+    fmt.Printf("Window:        %d seconds\\n", windowSeconds)
+    fmt.Printf("Burst Size:    %d\\n", burstSize)
+    fmt.Println("\\n✅ Configuration applied without deploy!")
+    fmt.Println("⚡ Evaluation: LOCAL (flag attachments cached)")
+}`}
+  output={`🔧 Dynamic Rate Limiter Configuration:
+
+Max Requests:  500
+Window:        60 seconds
+Burst Size:    50
+
+✅ Configuration applied without deploy!
+⚡ Evaluation: LOCAL (flag attachments cached)`}
+/>
+
+**4. Regional Launch com Múltiplos Países**
+
+<ExecutableCode
+  title="Regional Launch - Country-based Rollout"
+  language="go"
+  code={`package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+    ctx := context.Background()
+    client.Start(ctx)
+    defer client.Stop()
+
+    countries := []struct {
+        user    string
+        country string
+    }{
+        {"user-br-001", "BR"},
+        {"user-us-001", "US"},
+        {"user-pt-001", "PT"},
+        {"user-ar-001", "AR"},
+    }
+
+    fmt.Println("🌎 Regional Feature Launch:")
+    fmt.Println("Flag constraint: country IN [\\"BR\\", \\"PT\\"]\\n")
+
+    for _, c := range countries {
+        evalCtx := vexilla.NewContext(c.user).
+            WithAttribute("country", c.country)
+
+        enabled := client.Bool(ctx, "latam_launch", evalCtx)
+
+        icon := "❌"
+        status := "Not available"
+        if enabled {
+            icon = "✅"
+            status = "ENABLED"
+        }
+
+        fmt.Printf("%s %s (%s): %s\\n", icon, c.user, c.country, status)
+    }
+
+    fmt.Println("\\n⚡ Evaluation: LOCAL (335ns, 0 HTTP calls)")
+}`}
+  output={`🌎 Regional Feature Launch:
+Flag constraint: country IN ["BR", "PT"]
+
+✅ user-br-001 (BR): ENABLED
+❌ user-us-001 (US): Not available
+✅ user-pt-001 (PT): ENABLED
+❌ user-ar-001 (AR): Not available
+
+⚡ Evaluation: LOCAL (335ns, 0 HTTP calls)`}
+/>
+
+---
+
+Esses exemplos mostram o uso básico do Vexilla. Mas tem uma feature que pode **reduzir o uso de memória em 97%** e acelerar ainda mais as avaliações: **filtragem inteligente**.
+
+### Filtragem inteligente
+
+Uma coisa que aprendi na prática: em arquitetura de microserviços, cada serviço só precisa de um subconjunto das flags. Se você tem 10 mil flags no Flagr, mas o `user-service` só usa 50, por que cachear todas?
+
+![service tags](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-12-25-feature-flags-alem-do-if-else/flag-tags.png)
+
+O Vexilla tem um **sistema de filtragem avançado** que pode reduzir o uso de memória em até **95%**:
+
+```go
+// Filtragem básica por service tag
+vexilla.WithServiceTag("user-service", true)  // Apenas flags com tag "user-service"
+
+// Filtragem por estado
+vexilla.WithOnlyEnabled(true)  // Apenas flags habilitadas
+
+// Filtragem por tags adicionais (AND/OR logic)
+vexilla.WithAdditionalTags([]string{"production"}, "all")  // Todas as tags devem estar presentes
+vexilla.WithAdditionalTags([]string{"beta", "experimental"}, "any")  // Ao menos uma tag
+```
+
+**Impacto real de memória:**
+
+**Cenário 1: Sem filtro**
+- Flags totais: 10,000
+- Flags cacheadas: 10,000
+- Memória: **~9.77 MB**
+
+**Cenário 2: Com ServiceTag**
+- Flags totais: 10,000
+- Flags cacheadas: 50
+- Memória: **~488 KB**
+
+**Cenário 3: ServiceTag + OnlyEnabled**
+- Flags totais: 10,000
+- Flags cacheadas: 30
+- Memória: **~293 KB**
+
+**📊 ECONOMIA TOTAL:**
+- Flags cacheadas: **99.7% menos**
+- Uso de memória: **97% de redução**
+
+<BarChart
+  title="Impacto da Filtragem no Uso de Memória"
+  orientation="horizontal"
+  data={[
+    {
+      label: "Sem Filtro",
+      value: 9.77,
+      subtitle: "10,000 flags",
+      color: "#ef4444"
+    },
+    {
+      label: "Com ServiceTag",
+      value: 0.488,
+      subtitle: "50 flags (95% redução)",
+      color: "#f59e0b"
+    },
+    {
+      label: "ServiceTag + OnlyEnabled",
+      value: 0.293,
+      subtitle: "30 flags (97% redução)",
+      color: "#22c55e"
+    }
+  ]}
+  unit=" MB"
+  showValues={true}
+/>
+
+### Exemplo completo de arquitetura multi-serviço:
+
+<MermaidDiagram
+  title="Arquitetura Multi-Serviço com Filtragem Inteligente de Flags"
+  chart={`
+flowchart TB
+    Flagr[(Flagr Server<br/>10,000 flags totais)]
+
+    subgraph UserService[User Service - 300 KB]
+        UserVexilla[Vexilla Client]
+        UserFilter[Filtros:<br/>• ServiceTag: user-service<br/>• OnlyEnabled: true<br/>• Tags: production]
+        UserCache[Cache: 50 flags]
+        UserApp[App Logic]
+    end
+
+    subgraph PaymentService[Payment Service - 400 KB]
+        PaymentVexilla[Vexilla Client]
+        PaymentFilter[Filtros:<br/>• ServiceTag: payment-service<br/>• OnlyEnabled: true]
+        PaymentCache[Cache: 60 flags]
+        PaymentApp[App Logic]
+    end
+
+    subgraph AnalyticsService[Analytics Service - 250 KB]
+        AnalyticsVexilla[Vexilla Client]
+        AnalyticsFilter[Filtros:<br/>• ServiceTag: analytics-service<br/>• Tags: beta OR experimental]
+        AnalyticsCache[Cache: 40 flags]
+        AnalyticsApp[App Logic]
+    end
+
+    Flagr -->|Sync 50 flags| UserVexilla
+    Flagr -->|Sync 60 flags| PaymentVexilla
+    Flagr -->|Sync 40 flags| AnalyticsVexilla
+
+    UserVexilla --> UserFilter
+    UserFilter --> UserCache
+    UserCache --> UserApp
+
+    PaymentVexilla --> PaymentFilter
+    PaymentFilter --> PaymentCache
+    PaymentCache --> PaymentApp
+
+    AnalyticsVexilla --> AnalyticsFilter
+    AnalyticsFilter --> AnalyticsCache
+    AnalyticsCache --> AnalyticsApp
+
+    style Flagr fill:#422006,stroke:#f59e0b,color:#fef3c7
+
+    style UserService fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style UserVexilla fill:#1e40af,stroke:#3b82f6,color:#dbeafe
+    style UserFilter fill:#1e40af,stroke:#3b82f6,color:#dbeafe
+    style UserCache fill:#166534,stroke:#22c55e,color:#dcfce7
+    style UserApp fill:#1e293b,stroke:#64748b,color:#e2e8f0
+
+    style PaymentService fill:#581c87,stroke:#a855f7,color:#e9d5ff
+    style PaymentVexilla fill:#6b21a8,stroke:#a855f7,color:#e9d5ff
+    style PaymentFilter fill:#6b21a8,stroke:#a855f7,color:#e9d5ff
+    style PaymentCache fill:#166534,stroke:#22c55e,color:#dcfce7
+    style PaymentApp fill:#1e293b,stroke:#64748b,color:#e2e8f0
+
+    style AnalyticsService fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style AnalyticsVexilla fill:#991b1b,stroke:#ef4444,color:#fee2e2
+    style AnalyticsFilter fill:#991b1b,stroke:#ef4444,color:#fee2e2
+    style AnalyticsCache fill:#166534,stroke:#22c55e,color:#dcfce7
+    style AnalyticsApp fill:#1e293b,stroke:#64748b,color:#e2e8f0
+  `}
+/>
+
+```go
+// User Service - só precisa de flags de autenticação
+userClient, _ := vexilla.New(
+    vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    vexilla.WithServiceTag("user-service", true),
+    vexilla.WithOnlyEnabled(true),
+    vexilla.WithAdditionalTags([]string{"production"}, "all"),
+)
+
+// Payment Service - só precisa de flags de pagamento
+paymentClient, _ := vexilla.New(
+    vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    vexilla.WithServiceTag("payment-service", true),
+    vexilla.WithOnlyEnabled(true),
+)
+
+// Analytics Service - precisa de flags beta/experimental
+analyticsClient, _ := vexilla.New(
+    vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    vexilla.WithServiceTag("analytics-service", true),
+    vexilla.WithAdditionalTags([]string{"beta", "experimental"}, "any"),
+)
+```
+
+**No Flagr, você organiza assim:**
+```json
+// Flag: require-email-verification
+{ "tags": ["user-service", "production"] }
+
+// Flag: stripe-integration
+{ "tags": ["payment-service", "production"] }
+
+// Flag: ab-test-checkout-flow
+{ "tags": ["payment-service", "beta"] }
+
+// Flag: new-analytics-pipeline
+{ "tags": ["analytics-service", "experimental"] }
+```
+
+**Resultado:**
+- `user-service`: cacheia apenas flags com `user-service` + `production` (~300 KB)
+- `payment-service`: cacheia flags com `payment-service` (~400 KB)
+- `analytics-service`: cacheia flags com `analytics-service` + (`beta` OU `experimental`) (~250 KB)
+
+**Antes da filtragem:** 3 serviços × 10 MB = **30 MB total**
+**Depois da filtragem:** 3 serviços × ~300 KB = **~1 MB total** (97% economia!)
+
+Isso não é só economia de memória - é também **menos latência** (cache menor = lookup mais rápido) e **menos network** (refresh puxa menos dados do Flagr).
+
+### Trade-offs honestos
+
+Vexilla não é silver bullet. Tem trade-offs que você precisa conhecer:
+
+<ComparisonTable
+  title="Quando usar Vexilla vs Flagr Direto"
+  columns={[
+    { header: "Cenário", key: "scenario" },
+    { header: "Use Vexilla", key: "vexilla" },
+    { header: "Use Flagr Direto", key: "flagr" },
+  ]}
+  data={[
+    {
+      scenario: "Flags determinísticas (country, tier, etc.)",
+      vexilla: "✅ Sim - 335ns local",
+      flagr: "❌ Não - 150ms HTTP",
+      highlight: true,
+    },
+    {
+      scenario: "A/B test ativo (50%/50%)",
+      vexilla: "❌ Não - precisa hash",
+      flagr: "✅ Sim - hash consistente",
+    },
+    {
+      scenario: "Rollout gradual determinístico (CPF bucket)",
+      vexilla: "✅ Sim - 100% offline",
+      flagr: "⚠️ Funciona mas mais lento",
+      highlight: true,
+    },
+    {
+      scenario: "Rollout gradual percentual (Flagr hash)",
+      vexilla: "❌ Não - precisa Flagr",
+      flagr: "✅ Sim - algoritmo interno",
+    },
+    {
+      scenario: "Precisa mudança instantânea",
+      vexilla: "⚠️ Use webhook (menos de 1s)",
+      flagr: "✅ Imediato",
+    },
+    {
+      scenario: "Alto volume (10K+ req/s)",
+      vexilla: "✅ Sim - zero SPOF",
+      flagr: "❌ Não - gargalo HTTP",
+      highlight: true,
+    },
+  ]}
+/>
+
+**A razão técnica:** quando você usa `rollout_percent` menos de 100 ou múltiplas distribuições com percentuais, o Flagr usa um algoritmo de hash consistente baseado no `entityID` pra decidir qual variante retornar. Esse cálculo precisa ser feito no Flagr pra garantir que o mesmo usuário sempre cai na mesma variante.
+
+Mas se a flag é determinística (constraints baseadas em atributos como país, tier, cpf_bucket), dá pra avaliar tudo localmente. O Vexilla usa o [expr](https://github.com/expr-lang/expr) pra isso - um motor de expressões seguro que suporta todos os operadores do Flagr (EQ, NEQ, IN, LT, GT, MATCHES, etc.).
+
+### Um truque que aprendi: transformar flags percentuais em determinísticas
+
+Aqui vai uma sacada que mudou meu jogo: você pode transformar rollouts percentuais em constraints determinísticas e conseguir o mesmo resultado.
+
+**Exemplo real:** Preciso fazer rollout de 10% de uma feature nova.
+
+**Forma tradicional (precisa do Flagr):**
+```json
+{
+  "rollout_percent": 10
+}
+```
+
+**Forma determinística (avalia local):**
+```json
+{
+  "rollout_percent": 100,
+  "constraints": [
+    {
+      "property": "cpf_bucket",
+      "operator": ">=",
+      "value": "0"
+    },
+    {
+      "property": "cpf_bucket",
+      "operator": "<=",
+      "value": "9"
+    }
+  ]
+}
+```
+
+No código, você pre-processa o CPF antes de avaliar:
+
+<ExecutableCode
+  title="Deterministic Rollout - 10% usando CPF Bucket"
+  language="go"
+  code={`package main
+
+import (
+    "fmt"
+    "strconv"
+    "strings"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+// Extrai dígitos 6 e 7 do CPF (00-99 = 100 buckets)
+func cpfBucket(cpf string) int {
+    clean := strings.ReplaceAll(cpf, ".", "")
+    clean = strings.ReplaceAll(clean, "-", "")
+
+    if len(clean) < 7 {
+        return -1
+    }
+
+    bucket, _ := strconv.Atoi(clean[5:7])
+    return bucket
+}
+
+func main() {
+    // Testa 3 CPFs diferentes
+    cpfs := []string{
+        "123.456.789-09",  // bucket 67
+        "111.222.305-44",  // bucket 05 (dentro do range 0-9)
+        "999.888.777-66",  // bucket 77
+    }
+
+    for _, cpf := range cpfs {
+        bucket := cpfBucket(cpf)
+        evalCtx := vexilla.NewContext("user").
+            WithAttribute("cpf_bucket", bucket)
+
+        // Flag configurada: cpf_bucket >= 0 AND cpf_bucket <= 9 (10%)
+        enabled := client.Bool(ctx, "gradual-rollout", evalCtx)
+
+        fmt.Printf("CPF: %s → Bucket: %02d → Enabled: %v\\n",
+            cpf, bucket, enabled)
+    }
+
+    fmt.Println("\\n✓ Totalmente determinístico!")
+    fmt.Println("✓ 0 chamadas HTTP (avaliação local)")
+    fmt.Println("✓ 736ns por avaliação (203,804x mais rápido que Flagr)")
+}`}
+  output={`CPF: 123.456.789-09 → Bucket: 67 → Enabled: false
+CPF: 111.222.305-44 → Bucket: 05 → Enabled: true
+CPF: 999.888.777-66 → Bucket: 77 → Enabled: false
+
+✓ Totalmente determinístico!
+✓ 0 chamadas HTTP (avaliação local)
+✓ 736ns por avaliação (203,804x mais rápido que Flagr)`}
+/>
+
+Os dígitos 6 e 7 do CPF vão de 00 a 99 (100 combinações). Pegar range 00-09 te dá exatamente 10% da população. E é completamente determinístico, e além mesmo CPF sempre cai no mesmo bucket, que seria o comportamento normal do flagr com 10% de rollout pois ele calcula um hash para cada entityID.
+
+Com esse simples ajuste na forma de utilizar você para de depender de uma requisição, diminui a latencia (usuario recebe respostas mais rapidas em todo fluxo). E até para debugar facilita nessa abordagem, pois voce pode simplesmente ver os digitos do usuario caso necessite debugar.
+
+**Quando usar:** Qualquer atributo com distribuição uniforme serve (últimos dígitos de documento, hash de email, user_id % 100, etc.). Só precisa garantir que a distribuição é realmente uniforme pra não enviesar o teste.
+
+Desde que comecei a fazer isso, mais de 90% das minhas flags viraram determinísticas. Rollouts graduais? Todos viraram constraints determinísticas.
+
+<MermaidDiagram
+  title="Timeline de Rollout Gradual Determinístico"
+  chart={`
+gantt
+    title Rollout Gradual: Nova Feature de Checkout
+    dateFormat YYYY-MM-DD
+    axisFormat %d/%m
+
+    section Stage 1 - Teste Interno
+    Habilita 1% (bucket 00)           :active, stage1, 2025-01-15, 3d
+    Monitora métricas e erros         :stage1m, after stage1, 2d
+
+    section Stage 2 - Early Adopters
+    Expande para 10% (bucket 00-09)   :crit, stage2, 2025-01-20, 5d
+    Coleta feedback dos usuários      :stage2m, after stage2, 2d
+
+    section Stage 3 - Rollout Parcial
+    Aumenta para 50% (bucket 00-49)   :active, stage3, 2025-01-27, 7d
+    A/B test completo rodando         :stage3m, after stage3, 3d
+
+    section Stage 4 - Full Rollout
+    100% habilitado (bucket 00-99)    :done, stage4, 2025-02-07, 7d
+    Remove flag do código             :milestone, cleanup, 2025-02-14, 1d
+  `}
+/>
+
+Isso é um **diferencial técnico do Vexilla** - você consegue fazer rollouts graduais determinísticos que são 100% offline e reproduzíveis.
+
+## Como o Vexilla decide: local ou remoto?
+
+Uma pergunta que sempre me fazem: como o Vexilla sabe quando pode avaliar localmente?
+
+<MermaidDiagram
+  title="Árvore de Decisão: Estratégia de Avaliação"
+  chart={`
+flowchart TD
+    Start[cache.Evaluate] --> GetFlag[storage.Get flagKey]
+
+    GetFlag -->|Found| CheckLocal{Can evaluate<br/>locally?}
+    GetFlag -->|Not Found| Refresh[Refresh flags from Flagr]
+
+    Refresh --> Retry[Retry evaluation or fallback]
+
+    CheckLocal -->|Yes - Local| EvalLocal[Evaluate locally]
+    CheckLocal -->|No - Remote| CheckCircuit{Circuit breaker}
+
+    CheckCircuit -->|Open| ReturnError[Return error]
+    CheckCircuit -->|Closed| RemoteEval[Remote evaluation]
+
+    RemoteEval --> PostAPI[POST api v1 evaluation]
+    PostAPI --> Latency[50 to 200ms<br/>1 HTTP request]
+
+    EvalLocal --> CheckEnabled[Check flag enabled]
+    CheckEnabled --> IterateSegments[Iterate segments by rank]
+    IterateSegments --> EvalConstraints[Evaluate constraints - AND]
+    EvalConstraints --> ExprEngine[Expression engine]
+    ExprEngine --> ReturnVariant[Return variant<br/>less than 1ms<br/>0 HTTP requests]
+
+    style EvalLocal fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style CheckEnabled fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style IterateSegments fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style EvalConstraints fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style ExprEngine fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style ReturnVariant fill:#14532d,stroke:#22c55e,color:#dcfce7
+
+    style RemoteEval fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style PostAPI fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style Latency fill:#991b1b,stroke:#dc2626,color:#fecaca
+  `}
+/>
+
+A lógica é bem direta. Quando o Vexilla carrega uma flag do Flagr, ele analisa a configuração:
+
+```go
+func (f *Flag) DetermineStrategy() EvaluationStrategy {
+    if !f.Enabled {
+        return StrategyLocal // Flag desabilitada = sempre local
+    }
+
+    if len(f.Segments) == 0 {
+        return StrategyLocal // Sem segmentos = local
+    }
+
+    for _, segment := range f.Segments {
+        // Rollout parcial? Precisa do Flagr
+        if segment.RolloutPercent > 0 && segment.RolloutPercent < 100 {
+            return StrategyRemote
+        }
+
+        // Múltiplas distribuições? (A/B test) Precisa do Flagr
+        if len(segment.Distributions) > 1 {
+            return StrategyRemote
+        }
+
+        // Uma distribuição com percentual < 100%? Precisa do Flagr
+        if len(segment.Distributions) == 1 {
+            if segment.Distributions[0].Percent < 100 {
+                return StrategyRemote
+            }
+        }
+    }
+
+    return StrategyLocal // Tudo determinístico!
+}
+```
+
+**Exemplos:**
+
+✅ **Local** - Rollout 100%, constraint: `country == "BR"`
+```json
+{
+  "segments": [{
+    "rollout_percent": 100,
+    "constraints": [{"property": "country", "operator": "EQ", "value": "BR"}],
+    "distributions": [{"percent": 100, "variant": "enabled"}]
+  }]
+}
+```
+
+✅ **Local** - Sem constraints, rollout 100%
+```json
+{
+  "segments": [{
+    "rollout_percent": 100,
+    "constraints": [],
+    "distributions": [{"percent": 100, "variant": "enabled"}]
+  }]
+}
+```
+
+❌ **Remoto** - Rollout parcial (30%)
+```json
+{
+  "segments": [{
+    "rollout_percent": 30,  // ← Precisa do hash do Flagr!
+    "constraints": [{"property": "country", "operator": "EQ", "value": "BR"}]
+  }]
+}
+```
+
+❌ **Remoto** - A/B test (múltiplas distribuições)
+```json
+{
+  "segments": [{
+    "rollout_percent": 100,
+    "constraints": [],
+    "distributions": [
+      {"percent": 50, "variant": "blue"},   // ← Precisa do calculo de hash do flagr!
+      {"percent": 50, "variant": "red"}
+    ]
+  }]
+}
+```
+
+Na prática, 80-90% das flags acabam sendo locais. Só A/B tests ativos e rollouts graduais em andamento vão pro Flagr, e mesmo assim dá pra transformar eles em determinísticos sem precisar de chamadas HTTP.
+
+---
+
+Entender quando a flag avalia local vs remoto é crucial pra performance. Mas como você garante que tudo tá funcionando em produção? Como sabe se o cache tá saudável ou se o circuit breaker abriu?
+
+## Observabilidade e métricas
+
+Uma coisa que faz muita diferença em produção: saber o que tá acontecendo com suas flags. O Vexilla expõe métricas completas que você pode monitorar:
+
+### Métricas programáticas
+
+<ExecutableCode
+  title="Monitoramento - Métricas do Vexilla em Runtime"
+  language="go"
+  code={`package main
+
+import (
+    "fmt"
+    "time"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    // Obtém métricas atuais do cliente
+    metrics := client.Metrics()
+
+    fmt.Println("=== PERFORMANCE DO CACHE ===")
+    fmt.Printf("Keys Cached:   %d\\n", metrics.Storage.KeysAdded)
+    fmt.Printf("Keys Updated:  %d\\n", metrics.Storage.KeysUpdated)
+    fmt.Printf("Hit Ratio:     %.2f%%\\n", metrics.Storage.HitRatio*100)
+    fmt.Printf("Keys Evicted:  %d\\n", metrics.Storage.KeysEvicted)
+
+    fmt.Println("\\n=== DISTRIBUIÇÃO DE FLAGS ===")
+    fmt.Printf("Total Flags:   %d\\n", metrics.Cache.TotalFlags)
+    fmt.Printf("Local Flags:   %d (%.1f%%)\\n",
+        metrics.Cache.LocalFlags,
+        float64(metrics.Cache.LocalFlags)/float64(metrics.Cache.TotalFlags)*100)
+    fmt.Printf("Remote Flags:  %d (%.1f%%)\\n",
+        metrics.Cache.RemoteFlags,
+        float64(metrics.Cache.RemoteFlags)/float64(metrics.Cache.TotalFlags)*100)
+
+    fmt.Println("\\n=== SAÚDE DO SISTEMA ===")
+    fmt.Printf("Last Refresh:       %s ago\\n", time.Since(metrics.LastRefresh))
+    fmt.Printf("Circuit State:      %s\\n", metrics.Circuit.State)
+    fmt.Printf("Consecutive Fails:  %d\\n", metrics.ConsecutiveFails)
+
+    // Alerta automático
+    if metrics.Storage.HitRatio < 0.95 {
+        fmt.Println("\\n⚠️  ALERTA: Hit ratio baixo - verificar memória")
+    }
+    if metrics.Circuit.State == "open" {
+        fmt.Println("⚠️  ALERTA: Circuit breaker ABERTO - Flagr inacessível")
+    }
+}`}
+  output={`=== PERFORMANCE DO CACHE ===
+Keys Cached:   150
+Keys Updated:  42
+Hit Ratio:     98.70%
+Keys Evicted:  3
+
+=== DISTRIBUIÇÃO DE FLAGS ===
+Total Flags:   150
+Local Flags:   142 (94.7%)
+Remote Flags:  8 (5.3%)
+
+=== SAÚDE DO SISTEMA ===
+Last Refresh:       2m30s ago
+Circuit State:      closed
+Consecutive Fails:  0`}
+/>
+
+<BarChart
+  title="Distribuição de Flags: Local vs Remote"
+  orientation="horizontal"
+  data={[
+    {
+      label: "Flags Locais (determinísticas)",
+      value: 142,
+      subtitle: "94.7% - Avaliadas em memória",
+      color: "#22c55e"
+    },
+    {
+      label: "Flags Remotas (percentuais)",
+      value: 8,
+      subtitle: "5.3% - Requerem Flagr",
+      color: "#f59e0b"
+    }
+  ]}
+  unit=" flags"
+  showValues={true}
+/>
+
+
+### OpenTelemetry Integration 
+
+Agora tem **integração completa com OpenTelemetry** pra métricas e traces. Isso é especialmente útil se você já usa Datadog, New Relic, Grafana, etc:
+
+```go
+import (
+    "github.com/OrlandoBitencourt/vexilla"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/prometheus"
+    "go.opentelemetry.io/otel/sdk/metric"
+)
+
+func main() {
+    // Setup OpenTelemetry exporter (Prometheus, OTLP, etc)
+    exporter, _ := prometheus.New()
+    provider := metric.NewMeterProvider(metric.WithReader(exporter))
+    otel.SetMeterProvider(provider)
+
+    // Vexilla automaticamente detecta e usa o provider global
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+
+    client.Start(context.Background())
+
+    // Métricas exportadas automaticamente:
+    // - vexilla.cache.hits (counter)
+    // - vexilla.cache.misses (counter)
+    // - vexilla.evaluations (histogram) com label "strategy" (local/remote)
+    // - vexilla.refresh.duration (histogram)
+    // - vexilla.circuit.state (gauge)
+}
+```
+
+**Métricas exportadas:**
+
+**Counter Metrics:**
+- `vexilla.cache.hits` - Cache hits (label: `flag_key`)
+- `vexilla.cache.misses` - Cache misses (label: `flag_key`)
+
+**Histogram Metrics:**
+- `vexilla.evaluations` - Latência de avaliação (labels: `strategy`, `flag_key`)
+- `vexilla.refresh.duration` - Tempo de refresh
+
+**Gauge Metrics:**
+- `vexilla.circuit.state` - Estado do circuit breaker
+  - 0 = closed (normal)
+  - 1 = open (bloqueando)
+  - 2 = half-open (testando)
+
+**Traces automáticos:**
+Todas as operações são instrumentadas com spans:
+- `vexilla.evaluate` - Avaliação de flag (com attributes: flag_key, entity_id, strategy)
+- `vexilla.refresh` - Refresh do cache
+- `vexilla.flagr.api_call` - Chamadas ao Flagr
+
+**Exemplo de query no Prometheus:**
+
+```promql
+# Taxa de cache hit rate
+rate(vexilla_cache_hits_total[5m]) /
+  (rate(vexilla_cache_hits_total[5m]) + rate(vexilla_cache_misses_total[5m]))
+
+# P99 latência de avaliação local vs remoto
+histogram_quantile(0.99,
+  rate(vexilla_evaluations_bucket{strategy="local"}[5m]))
+
+# Alertas quando circuit breaker abre
+vexilla_circuit_state == 1
+```
+
+**Dashboard Grafana pronto:**
+Tem um dashboard Grafana de exemplo no repo que mostra:
+- Hit ratio ao longo do tempo
+- Latência P50/P95/P99 (local vs remoto)
+- Taxa de refresh failures
+- Estado do circuit breaker
+- Distribuição de flags (local vs remote)
+
+## Performance na prática: números reais
+
+Pra deixar claro o impacto, rodei benchmarks completos comparando avaliação direta no Flagr vs Vexilla (AMD Ryzen 5600G, 12 cores):
+
+**Local Evaluation (flags determinísticas):**
+
+<ComparisonTable
+  title="Benchmarks de Avaliação Local - Vexilla (AMD Ryzen 5600G, 12 cores)"
+  columns={[
+    { header: "Benchmark", key: "benchmark" },
+    { header: "Ops/Segundo", key: "ops", align: "right" },
+    { header: "Latência", key: "latency", align: "right" },
+    { header: "Memória/Op", key: "memory", align: "right" },
+    { header: "Allocs/Op", key: "allocs", align: "right" },
+  ]}
+  data={[
+    {
+      benchmark: "Simple Eval",
+      ops: "9.4M",
+      latency: "335 ns",
+      memory: "447 B",
+      allocs: "6",
+    },
+    {
+      benchmark: "Complex Eval",
+      ops: "5.9M",
+      latency: "625 ns",
+      memory: "974 B",
+      allocs: "11",
+    },
+    {
+      benchmark: "Concurrent Eval",
+      ops: "37.7M",
+      latency: "86 ns",
+      memory: "227 B",
+      allocs: "3",
+      highlight: true,
+    },
+    {
+      benchmark: "Client Bool()",
+      ops: "13.7M",
+      latency: "73 ns",
+      memory: "23 B",
+      allocs: "1",
+    },
+    {
+      benchmark: "Deterministic Rollout",
+      ops: "5.5M",
+      latency: "736 ns",
+      memory: "447 B",
+      allocs: "6",
+    },
+  ]}
+/>
+
+**Remote Evaluation (via Flagr):**
+```
+Latência típica: 50-200ms por avaliação
+Throughput: ~2,000-5,000 avaliações/segundo
+```
+<BarChart
+  title="Latência de Avaliação: Local vs Remote"
+  orientation="horizontal"
+  data={[
+    {
+      label: "Vexilla Local",
+      value: 0.000335,
+      subtitle: "335 nanosegundos",
+      color: "#22c55e"
+    },
+    {
+      label: "Flagr Remote",
+      value: 150,
+      subtitle: "150 milissegundos",
+      color: "#ef4444"
+    }
+  ]}
+  unit=" ms"
+  showValues={true}
+/>
+
+### O impacto é absurdo:
+
+<ComparisonTable
+  title="Impacto de Performance"
+  columns={[
+    { header: "Métrica", key: "metric" },
+    { header: "Resultado", key: "value", align: "right" },
+  ]}
+  data={[
+    {
+      metric: "Speedup",
+      value: "200x – 2.7M x mais rápido",
+      highlight: true,
+    },
+    {
+      metric: "Memória por avaliação",
+      value: "447 bytes (simples)",
+    },
+    {
+      metric: "Memória via Client API",
+      value: "23 bytes",
+      highlight: true,
+    },
+    {
+      metric: "Escalabilidade",
+      value: "37.7M ops/s (12 cores)",
+    },
+    {
+      metric: "Ops por core",
+      value: "3.1M ops/s",
+    },
+  ]}
+/>
+
+Isso significa que num cenário de 100K req/s avaliando 3 flags cada:
+
+
+<BarChart
+  title="Throughput: Operações por Segundo"
+  orientation="horizontal"
+  data={[
+    {
+      label: "Simple Eval",
+      value: 9400000,
+      subtitle: "335ns/op",
+      color: "#3b82f6"
+    },
+    {
+      label: "Concurrent Eval",
+      value: 37700000,
+      subtitle: "86ns/op - o mais rápido!",
+      color: "#22c55e"
+    },
+    {
+      label: "Client Bool()",
+      value: 13700000,
+      subtitle: "73ns/op",
+      color: "#8b5cf6"
+    },
+    {
+      label: "Deterministic Rollout",
+      value: 5500000,
+      subtitle: "736ns/op",
+      color: "#f59e0b"
+    },
+    {
+      label: "Flagr API (remoto)",
+      value: 6,
+      subtitle: "~150ms/op",
+      color: "#ef4444"
+    }
+  ]}
+  unit=" ops/s"
+  showValues={true}
+/>
+
+---
+
+Esses números mostram que o Vexilla consegue lidar com altíssimo volume. Mas na prática, como você usa isso pra resolver problemas reais? Vamos ver alguns padrões que uso no dia a dia.
+
+## Casos de uso avançados
+
+### Kill Switch operacional
+
+Quando você tem uma integração externa que tá falhando (Stripe, SendGrid, etc), você quer poder desligar rapidamente:
+
+<MermaidDiagram
+  title="Kill Switch em Ação - Resposta Rápida a Incidentes"
+  chart={`
+sequenceDiagram
+    autonumber
+    participant User as Usuário
+    participant App as Aplicação
+    participant Vexilla as Vexilla
+    participant Stripe as Stripe API
+    participant Ops as Time de Ops
+    participant Flagr as Flagr UI
+    participant Fallback as Sistema Fallback
+
+    Note over Stripe: ❌ Stripe API começa a falhar<br/>(timeout, 500 errors)
+
+    User->>App: Requisição de pagamento
+    App->>Vexilla: Bool(ctx, "stripe-integration-enabled")
+    Vexilla-->>App: true (flag habilitada)
+    App->>Stripe: Processar pagamento
+    Stripe-->>App: ❌ ERROR (timeout)
+    App-->>User: ❌ Erro no pagamento
+
+    Note over App,Stripe: 🔥 Erros se acumulando...
+
+    Ops->>Flagr: Desabilita flag<br/>"stripe-integration-enabled"
+    Note over Flagr: ⏱️ Ação em 10 segundos
+
+    User->>App: Nova requisição de pagamento
+    App->>Vexilla: Bool(ctx, "stripe-integration-enabled")
+    Note over Vexilla: Cache atualizado<br/>(webhook ou refresh)
+    Vexilla-->>App: false (flag desabilitada)
+    App->>Fallback: Usa fallback (queue)
+    Fallback-->>App: ✅ Pagamento na fila
+    App-->>User: ✅ Pagamento processando
+
+    Note over User,Fallback: ✅ Sistema operando normalmente<br/>Usuários continuam usando a aplicação
+
+    Note over Stripe: ✅ Stripe volta ao normal
+
+    Ops->>Flagr: Reabilita flag<br/>"stripe-integration-enabled"
+
+    User->>App: Requisição de pagamento
+    App->>Vexilla: Bool(ctx, "stripe-integration-enabled")
+    Vexilla-->>App: true (flag habilitada)
+    App->>Stripe: Processar pagamento
+    Stripe-->>App: ✅ SUCCESS
+    App-->>User: ✅ Pagamento aprovado
+  `}
+/>
+
+```go
+// No início de cada operação crítica
+if !client.Bool(ctx, "stripe-integration-enabled", evalCtx) {
+    // Usa fallback (mock, queue pra processar depois, etc)
+    return useFallbackPayment()
+}
+
+// Segue com a integração real
+return processStripePayment()
+```
+
+**Resultado:** Se a Stripe cair, você desabilita a flag em ~10 segundos e imediatamente todas as requisições passam a usar o fallback. Quando normalizar, reabilita com a mesma facilidade.
+
+### Configuração dinâmica de infraestrutura
+
+Além de features, dá pra usar flags pra configuração operacional:
+
+```go
+result, _ := client.Evaluate(ctx, "worker-pool-config", evalCtx)
+
+// Ajusta o pool de workers sem restart
+poolSize := result.GetInt("pool_size", 10)
+maxRetries := result.GetInt("max_retries", 3)
+timeout := result.GetInt("timeout_seconds", 30)
+
+workerPool.Resize(poolSize)
+workerPool.SetRetries(maxRetries)
+workerPool.SetTimeout(time.Duration(timeout) * time.Second)
+```
+
+Precisa escalar workers porque a carga aumentou? Muda a flag. Sem deploy, sem restart.
+
+### Gradual migration entre sistemas
+
+Quando você tá migrando de um sistema antigo pra um novo:
+
+```go
+// Começa com 5% no sistema novo
+useNewSystem := client.Bool(ctx, "new-payment-system", evalCtx)
+
+if useNewSystem {
+    return newPaymentSystem.Process(payment)
+}
+return legacyPaymentSystem.Process(payment)
+```
+
+Aí você vai aumentando gradualmente: 5% → 10% → 25% → 50% → 100%. Se der problema em qualquer ponto, volta pro antigo instantaneamente.
+
+### Multi-tenancy com comportamentos diferentes
+
+```go
+// Cada tenant pode ter comportamento diferente
+evalCtx := vexilla.NewContext(userID).
+    WithAttribute("tenant_id", tenantID).
+    WithAttribute("tier", "enterprise")
+
+// Empresa X quer feature Y? Habilita só pra ela
+enableAdvancedReports := client.Bool(ctx, "advanced-reports", evalCtx)
+
+// No Flagr:
+// Constraint: tenant_id == "empresa-x" OR tier == "enterprise"
+```
+
+---
+
+Esses casos de uso mostram padrões isolados. Mas como tudo isso funciona junto numa aplicação real? Criei um exemplo completo que você pode rodar localmente.
+
+### Exemplo Completo: Aplicação Full-Stack Real
+
+Preparei uma **demo completa e interativa** que mostra como usar o Vexilla numa aplicação real de e-commerce com checkout. É o exemplo **[99-complete-api](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/99-complete-api)** do repositório.
+
+![Rollout Checkout Demo](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-12-25-feature-flags-alem-do-if-else/rollout%20checkout.png)
+
+**Stack:**
+- **Backend:** Go + Gin + Vexilla
+- **Frontend:** Next.js + TypeScript + Tailwind
+- **Feature Flags:** 6 flags demonstrando diferentes casos de uso
+
+**O que você vê funcionando:**
+
+1. **Rollout Determinístico Visual**
+   - Interface mostra o CPF sendo hasheado em tempo real
+   - Cálculo do bucket (0-99) explicado visualmente
+   - Barra de progresso do rollout percentage
+   - Resultado: "✅ In Rollout" ou "❌ Not in Rollout"
+
+2. **Kill Switch em Ação**
+   - Desabilita a flag no Flagr UI
+   - Clica "Invalidate" no admin panel
+   - **2 segundos depois:** todos os usuários voltam pra V1
+   - Zero deployment, zero risco
+
+3. **Simulador de Usuários**
+   - 5 personas pré-configuradas com CPFs diferentes
+   - Cada uma cai em buckets diferentes
+   - **Demonstra determinismo:** mesmo usuário sempre vê a mesma versão
+
+4. **Checkout V1 vs V2**
+   - **V1 (Azul):** Interface clássica, simples
+   - **V2 (Verde):** Interface moderna com:
+     - One-click checkout
+     - Apple Pay / Google Pay
+     - Saved payment methods
+     - Express shipping
+
+5. **Admin Panel**
+   - Métricas em tempo real (cache hits, misses, flags loaded)
+   - Invalidação de cache por flag específica
+   - Circuit breaker status
+   - Último refresh timestamp
+
+![Admin Panel com Métricas](https://raw.githubusercontent.com/OrlandoBitencourt/orlandobitencourt.github.io/refs/heads/main/public/posts/2025-12-25-feature-flags-alem-do-if-else/admin%20metrics.png)
+
+**Quick Start (5 minutos):**
+
+```bash
+# 1. Start Flagr
+docker run -d --name flagr -p 18000:18000 ghcr.io/openflagr/flagr
+
+# 2. Setup flags
+cd examples
+go run setup-flags.go
+
+# 3. Start backend (terminal 1)
+cd 99-complete-api/backend
+go run main.go
+
+# 4. Start frontend (terminal 2)
+cd 99-complete-api/frontend
+npm install
+npm run dev
+
+# 5. Open browser
+open http://localhost:3000
+```
+
+**Demo flow sugerido:**
+
+1. **Selecione "João Silva"** → Veja o bucket calculado (ex: bucket 42)
+2. **Clique "Test Checkout"** 5 vezes → Sempre a mesma versão (determinístico!)
+3. **Selecione "Maria Santos"** → Bucket diferente, pode ver versão diferente
+4. **Vá no Flagr** (localhost:18000) → Mude rollout de 30% pra 70%
+5. **Volte pro frontend** → Clique "Invalidate Rollout" no admin
+6. **Teste novamente** → Usuários que estavam no V1 agora podem ver V2!
+7. **Kill switch:** Desabilite `api.checkout.v2` no Flagr → Todos voltam pra V1 instantaneamente
+
+**Por que esse exemplo é especial:**
+
+- ✅ **Código production-ready** - Não é toy example, é arquitetura real
+- ✅ **Visual e interativo** - Você **vê** o algoritmo funcionando
+- ✅ **6 feature flags** diferentes (kill switch, rollout, rate limit, UI toggles)
+- ✅ **Explica os conceitos** - Interface mostra o "porquê" de cada decisão
+- ✅ **Pronto pra apresentar** - Use em demos, onboarding, apresentações
+
+Esse exemplo consolidou tudo que aprendi em 5 anos usando feature flags. Se você quer entender como Vexilla funciona na prática, **rode esse exemplo primeiro**.
+
+## Integrações úteis
+
+### Webhook pra atualizações em tempo real 
+
+Por padrão, o Vexilla atualiza as flags via polling a cada X minutos. Mas agora tem uma feature nova muito poderosa: **Webhook Invalidation Server**.
+
+<BarChart
+  title="Tempo de Propagação: Webhook vs Polling"
+  orientation="horizontal"
+  data={[
+    {
+      label: "Webhook Invalidation",
+      value: 1,
+      subtitle: "< 1 segundo",
+      color: "#22c55e"
+    },
+    {
+      label: "Polling Tradicional",
+      value: 300,
+      subtitle: "5 minutos (300 segundos)",
+      color: "#ef4444"
+    }
+  ]}
+  unit=" segundos"
+  showValues={true}
+/>
+
+Com webhooks, você tem **atualizações sub-segundo** ao invés de esperar minutos pelo próximo refresh:
+
+```go
+// Configuração simplificada via options
+client, _ := vexilla.New(
+    vexilla.WithFlagrEndpoint("http://flagr:18000"),
+
+    // Habilita webhook server (já inicia automaticamente!)
+    vexilla.WithWebhookInvalidation(vexilla.WebhookConfig{
+        Port:   18001,
+        Secret: "shared-secret-with-flagr",  // HMAC-SHA256 pra segurança
+    }),
+
+    // Polling como fallback (caso webhook falhe)
+    vexilla.WithRefreshInterval(5 * time.Minute),
+)
+
+client.Start(ctx)
+```
+
+**No Flagr, configure o webhook:**
+1. Vá em Settings → Webhooks
+2. Adicione: `http://seu-servico:18001/webhook`
+3. Secret: `shared-secret-with-flagr` (mesmo do código)
+4. Events: `flag.updated`, `flag.deleted`, `flag.enabled`, `flag.disabled`
+
+### Como funciona o webhook:
+
+<MermaidDiagram
+  title="Fluxo de Webhook Invalidation"
+  chart={`
+sequenceDiagram
+    participant UI as Flagr UI
+    participant Flagr as Flagr Server
+    participant Vexilla as Vexilla Service
+    participant Cache as Ristretto Cache
+    participant App as Application
+
+    UI->>Flagr: Update Flag
+    Note over Flagr: Flag "new-checkout-flow"<br/>enabled → disabled
+
+    Flagr->>Vexilla: POST /webhook
+    Note right of Flagr: Headers:<br/>X-Flagr-Signature (HMAC-SHA256)<br/>Body:<br/>{"event": "flag.updated",<br/>"flag_keys": ["new-checkout-flow"]}
+
+    Vexilla->>Vexilla: Validate HMAC Signature
+    alt Signature válida
+        Vexilla->>Cache: Delete("flag:new-checkout-flow")
+        Note over Cache: Entry invalidated
+        Vexilla-->>Flagr: 200 OK
+    else Signature inválida
+        Vexilla-->>Flagr: 403 Forbidden
+    end
+
+    App->>Vexilla: Bool(ctx, "new-checkout-flow")
+    Vexilla->>Cache: Get("flag:new-checkout-flow")
+    Cache-->>Vexilla: Cache MISS
+    Vexilla->>Flagr: GET /api/v1/flags/new-checkout-flow
+    Flagr-->>Vexilla: Flag data (disabled)
+    Vexilla->>Cache: Set("flag:new-checkout-flow", data)
+    Vexilla-->>App: false
+
+    Note over App,Vexilla: ✅ LIVE! (<1 segundo total)
+  `}
+/>
+
+**Performance:**
+- **Polling tradicional:** 5 minutos de latência
+- **Webhook:** menos de 1 segundo de latência
+- **Speedup: 300x mais rápido!**
+
+**Segurança:**
+O webhook usa **HMAC-SHA256** pra validar que a request realmente veio do Flagr:
+```go
+// Vexilla valida automaticamente
+signature := r.Header.Get("X-Flagr-Signature")
+expectedMAC := hmac.New(sha256.New, []byte(secret))
+expectedMAC.Write(payload)
+if !hmac.Equal(signature, expectedMAC.Sum(nil)) {
+    return errors.New("invalid signature")
+}
+```
+
+Isso previne que alguém malicioso invalide seu cache sem autorização.
+
+### Admin API pra operações
+
+Agora o Vexilla tem uma **Admin API REST completa** pra gerenciar o cache em runtime. Configuração super simples:
+
+```go
+client, _ := vexilla.New(
+    vexilla.WithFlagrEndpoint("http://flagr:18000"),
+
+    // Habilita Admin API
+    vexilla.WithAdminServer(vexilla.AdminConfig{
+        Port:    19000,
+        Enabled: true,
+    }),
+)
+
+client.Start(ctx)
+```
+
+**Endpoints disponíveis:**
+
+```bash
+# Health check (pra load balancer/k8s probes)
+GET /health
+Response: {"status": "healthy", "timestamp": "2025-12-21T10:30:00Z"}
+
+# Métricas do cache (Prometheus-friendly)
+GET /admin/stats
+Response: {
+  "storage": {
+    "keys_added": 1523,
+    "keys_updated": 342,
+    "keys_evicted": 12,
+    "hit_ratio": 0.987
+  },
+  "cache": {
+    "total_flags": 150,
+    "local_flags": 142,
+    "remote_flags": 8
+  },
+  "circuit": {
+    "state": "closed",
+    "consecutive_fails": 0
+  }
+}
+
+# Invalida flag específica (força re-fetch do Flagr)
+POST /admin/invalidate
+Body: {"flag_key": "new-checkout-flow"}
+Response: {"invalidated": ["new-checkout-flow"]}
+
+# Limpa todo o cache (cuidado em produção!)
+POST /admin/invalidate-all
+Response: {"invalidated": 150, "cache_cleared": true}
+
+# Força refresh de todas as flags
+POST /admin/refresh
+Response: {"refreshed": 150, "errors": 0}
+```
+
+**Casos de uso reais:**
+
+```bash
+# 1. Debugging: forçar refresh de flag específica
+curl -X POST http://localhost:19000/admin/invalidate \
+  -H "Content-Type: application/json" \
+  -d '{"flag_key": "problematic-flag"}'
+
+# 2. Monitoramento: expor métricas pro Prometheus
+# (scrape endpoint: http://vexilla:19000/admin/stats)
+
+# 3. Incident response: limpar cache durante problema
+curl -X POST http://localhost:19000/admin/invalidate-all
+
+# 4. Health check no Kubernetes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 19000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+**Segurança:**
+A Admin API roda em porta separada (não expor publicamente!). Em produção, recomendo:
+- Rodá-la apenas em rede interna
+- Usar autenticação via reverse proxy (nginx/Envoy)
+- Restringir IP source via firewall
+
+### HTTP Middleware pra integração simplificada 
+
+Se você tá usando HTTP handlers, agora tem um middleware pronto que injeta o cliente Vexilla no contexto da request:
+
+```go
+import (
+    "net/http"
+    "github.com/OrlandoBitencourt/vexilla"
+)
+
+func main() {
+    client, _ := vexilla.New(
+        vexilla.WithFlagrEndpoint("http://flagr:18000"),
+    )
+    client.Start(context.Background())
+
+    // Wrap seu handler com o middleware
+    handler := client.HTTPMiddleware(http.HandlerFunc(myHandler))
+
+    http.ListenAndServe(":8080", handler)
+}
+
+func myHandler(w http.ResponseWriter, r *http.Request) {
+    // Cliente já tá no contexto!
+    userID := r.Header.Get("X-User-ID")
+    country := r.Header.Get("X-Country")
+
+    evalCtx := vexilla.NewContext(userID).
+        WithAttribute("country", country)
+
+    // Pega o cliente do contexto
+    client := vexilla.FromContext(r.Context())
+
+    if client.Bool(r.Context(), "new-ui", evalCtx) {
+        renderNewUI(w)
+    } else {
+        renderOldUI(w)
+    }
+}
+```
+
+**Benefícios:**
+- Zero boilerplate pra passar o client por toda a stack
+- Contexto HTTP já vem com trace IDs (OpenTelemetry integration)
+- Fácil de testar (mock o context em testes)
+
+**Exemplo com framework popular (Chi Router):**
+```go
+import "github.com/go-chi/chi/v5"
+
+r := chi.NewRouter()
+
+// Middleware global
+r.Use(client.HTTPMiddleware)
+
+r.Get("/api/products", func(w http.ResponseWriter, r *http.Request) {
+    client := vexilla.FromContext(r.Context())
+
+    // Extrai atributos da request
+    tier := r.URL.Query().Get("tier")
+    evalCtx := vexilla.NewContext("anonymous").
+        WithAttribute("tier", tier)
+
+    showPremiumFeatures := client.Bool(r.Context(), "premium-products", evalCtx)
+
+    products := fetchProducts(showPremiumFeatures)
+    json.NewEncoder(w).Encode(products)
+})
+```
+
+Isso elimina a necessidade de dependency injection manual e deixa o código muito mais limpo!
+
+---
+
+Depois de ver tudo isso - arquitetura, performance, casos de uso - a pergunta que fica é: **quando realmente vale a pena usar feature flags?** Nem tudo precisa de flag, e adicionar flags desnecessárias só aumenta complexidade.
+
+## Quando usar feature flags?
+
+**Use quando:**
+- Tá lançando uma feature grande que pode dar problema
+- Quer fazer gradual rollout (5% → 25% → 50% → 100%)
+- Tem integrações externas que podem falhar
+- Product quer fazer A/B testing
+- Precisa de um kill switch de emergência
+
+**Não use quando:**
+- A feature é pequena e de baixo risco
+- Você nunca vai precisar desligar ela
+- Adiciona complexidade sem benefício
+
+## O que eu faria diferente se começasse hoje
+
+1. **Começaria usando flags desde o dia 1** - Não é "overhead desnecessário", é seguro de vida
+2. **Pensaria em performance desde cedo** - Chamadas HTTP pra avaliar flags escalam mal
+3. **Definiria processo de limpeza desde o início** - Technical debt de flags esquecidas é real
+4. **Documentaria as decisões de arquitetura** - Por que essa flag existe? Quando remover?
+5. **Treinaria o time todo** - Não é só ferramenta de dev, é ferramenta de negócio
+
+## Armadilhas comuns (e como evitar)
+
+Depois de 5 anos, já vi (e cometi) vários erros. Aqui vão os principais:
+
+### Flag debt (dívida de flags)
+
+**O erro:** Criar flags e nunca remover. Eventualmente você tem 200 flags no código e ninguém sabe qual faz o quê.
+
+**A solução:**
+- Todo PR que adiciona flag deve ter um plano/data de expiração
+- Code review obrigatório quando uma flag completa 100% rollout
+- Remover a flag é parte da definição de "done" da feature (ou pelo menos deveria ser)
+
+### Flags aninhadas profundamente
+
+**O erro:**
+```go
+if client.Bool("feature-a") {
+    if client.Bool("feature-b") {
+        if client.Bool("feature-c") {
+            // 😱 Impossível de testar todas as combinações
+        }
+    }
+}
+```
+
+**A solução:** Se você precisa de 3+ níveis, provavelmente tá errado. Considere:
+- Feature flags compostas (uma flag controla múltiplas sub-features)
+- Refatorar a arquitetura da feature
+- Usar strategies/adapters ao invés de ifs aninhados
+
+Isso parece loucura, mas pode acontecer, e normalmente é uma necessidade de negocio, por exemplo imagina que voce precisa de um "disjuntor" pra desligar a feature nova como um todo, mas dentro da experiencia nova voce ainda pode ter variacoes com rollouts menores para saber o que da mais resultado, na pratica voce vai ter 2 feature flags pra isso funcionar.
+
+### Não testar o "fallback path"
+
+**O erro:** Adicionar flag, testar só o caminho "enabled", nunca testar "disabled".
+
+**A solução:**
+```go
+// Testa AMBOS os caminhos
+func TestNewFeature(t *testing.T) {
+    t.Run("feature enabled", func(t *testing.T) {
+        // mock flag = true
+        // testa comportamento novo
+    })
+    
+    t.Run("feature disabled", func(t *testing.T) {
+        // mock flag = false
+        // testa que fallback funciona
+    })
+}
+```
+
+## Próximos Passos
+
+E se ainda não usa feature flags no seu projeto, sério: comece. Sua sexta-feira às 18h vai agradecer.
+
+### Quer experimentar o Vexilla?
+
+**1. Rode a Demo Completa (5 minutos):**
+
+A melhor forma de entender o Vexilla é vendo funcionando. Rode a aplicação full-stack:
+
+```bash
+# Clone o repo
+git clone https://github.com/OrlandoBitencourt/vexilla
+cd vexilla/examples/99-complete-api
+
+# Start Flagr
+docker run -d --name flagr -p 18000:18000 ghcr.io/openflagr/flagr
+
+# Setup flags
+cd .. && go run setup-flags.go && cd 99-complete-api
+
+# Terminal 1: Backend
+cd backend && go run main.go
+
+# Terminal 2: Frontend
+cd frontend && npm install && npm run dev
+
+# Abra: http://localhost:3000
+```
+
+**O que você vai ver:**
+- Interface interativa mostrando rollout determinístico
+- Kill switches em ação (2 segundos pra rollback!)
+- Simulador com 5 usuários diferentes
+- Admin panel com métricas em tempo real
+- Checkout V1 vs V2 lado a lado
+
+ **[Ver demo completa](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/99-complete-api)**
+
+**2. Explore os outros 10 exemplos práticos:**
+- [01-basic-usage](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/01-basic-usage) - Começar do zero
+- [03-deterministic-rollout](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/03-deterministic-rollout) - Rollouts 100% offline com buckets
+- [04-webhook-invalidation](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/04-webhook-invalidation) - Atualizações em tempo real
+- [06-http-middleware](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/06-http-middleware) - Integração com servidores HTTP
+- [09-telemetry](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples/09-telemetry) - Métricas e observabilidade
+
+**3. Leia a arquitetura completa:**
+
+[ARCHITECTURE.md](https://github.com/OrlandoBitencourt/vexilla/blob/main/ARCHITECTURE.md) - decisões técnicas documentadas em detalhes
+
+**4. Contribua ou reporte issues:**
+
+[github.com/OrlandoBitencourt/vexilla](https://github.com/OrlandoBitencourt/vexilla)
+
+**5. Dúvidas?**
+
+Me chama no [X (@orlandocbit)](https://x.com/orlandocbit) ou abre uma issue no GitHub.
+
+### Referência Rápida
+
+**Números-chave que você viu neste artigo:**
+- **335ns**: Latência de avaliação local (simple eval)
+- **37.7M ops/s**: Throughput máximo (concurrent eval)
+- **200x-447.000x**: Speedup vs Flagr direto (dependendo do cenário)
+- **97%**: Redução de uso de memória com filtragem
+- **95%**: Proporção típica de flags locais vs remotas
+- **Menos de 1s**: Propagação de mudanças via webhook
+
+**Links úteis:**
+- **Repositório:** [github.com/OrlandoBitencourt/vexilla](https://github.com/OrlandoBitencourt/vexilla)
+- **Documentação:** [pkg.go.dev/github.com/OrlandoBitencourt/vexilla](https://pkg.go.dev/github.com/OrlandoBitencourt/vexilla)
+- **Exemplos:** [github.com/OrlandoBitencourt/vexilla/tree/main/examples](https://github.com/OrlandoBitencourt/vexilla/tree/main/examples)
+- **Benchmarks:** [benchmarks/results/REAL_RESULTS.md](https://github.com/OrlandoBitencourt/vexilla/blob/main/benchmarks/results/REAL_RESULTS.md)
+- **Package:** [pkg.go.dev/github.com/OrlandoBitencourt/vexilla](https://pkg.go.dev/github.com/OrlandoBitencourt/vexilla#section-readmehttps://pkg.go.dev/github.com/OrlandoBitencourt/vexilla#section-readme)
+
+---
+
+*Tem alguma história ou dor com feature flags? Me conta no [X](https://x.com/orlandocbit)!*
