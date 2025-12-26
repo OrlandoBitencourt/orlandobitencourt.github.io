@@ -2,8 +2,8 @@ import { BlogPosts } from 'app/components/posts'
 import { getBlogPosts, getAllTags, getTagCounts } from './utils'
 
 export const metadata = {
-  title: 'Blog',
-  description: 'Leia minhas publicações sobre desenvolvimento de software.',
+  title: 'Artigos',
+  description: 'Leia meus artigos sobre desenvolvimento de software.',
 }
 
 export default function Page() {
@@ -14,7 +14,7 @@ export default function Page() {
   return (
     <section>
       <h1 className="font-semibold text-2xl mb-8 tracking-tighter">
-        Meu Blog
+        Artigos
       </h1>
       <BlogPosts posts={posts} allTags={allTags} tagCounts={tagCounts} />
     </section>

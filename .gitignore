@@ -36,3 +36,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .claude/settings.local.json
+app/challenges/posts/TEMPLATE.mdx
+CHALLENGES_IMPLEMENTATION.md
+nul
