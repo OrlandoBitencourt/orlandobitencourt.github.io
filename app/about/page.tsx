@@ -8,7 +8,7 @@ export const metadata = {
 export default function AboutPage() {
   return (
     <section>
-      <h1 className="font-semibold text-2xl mb-8 tracking-tighter">
+      <h1 className="font-semibold text-2xl mb-8 tracking-tighter text-center">
         Sobre Mim
       </h1>
 
