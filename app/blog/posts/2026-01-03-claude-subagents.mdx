@@ -1,0 +1,1429 @@
+---
+title: "Claude Sub-Agents: Como parei de conversar com IA e comecei a delegar trabalho"
+publishedAt: "2026-01-03"
+summary: "Sub-agents não são prompts especializados - são contratos de responsabilidade. Aprenda a arquitetar um sistema de agentes especializados no Claude Code que transformam sua produtividade."
+thumbnail: "/thumbnails/claude-subagents.jpg"
+tags: [Claude, AI, Produtividade, Arquitetura, Best Practices]
+---
+
+## TL;DR
+
+Depois de meses usando Claude Code, percebi que a maioria das pessoas usa IA como um chat glorificado. A virada de chave acontece quando você para de **conversar** e começa a **delegar**. Sub-agents são a forma de fazer isso de forma estruturada.
+
+**O que são:** Agentes especializados com responsabilidades bem definidas, invocados via `/` no Claude Code.
+
+**Por que usar:** Consistência, qualidade e contexto limpo. Cada agente é expert em uma coisa e roda em seu próprio contexto.
+
+**O ganho oculto:** Seu contexto principal não satura. Sub-agents rodam isolados, preservando a "memória de trabalho" da conversa principal.
+
+**Resultado:** Code reviews melhores, documentação consistente, conversas mais longas sem degradação, e menos retrabalho.
+
+*Tempo de leitura: ~20 minutos.*
+
+---
+
+## A evolução: chat → prompt → agente → sub-agent
+
+Quando comecei a usar IA para programação, minha interação era assim:
+
+```markdown
+- Eu: "Me ajuda a fazer um endpoint de login"
+- IA: *gera código genérico*
+___
+- Eu: "Não, precisa ter rate limiting"
+- IA: *refaz*
+___
+- Eu: "Esqueceu o logging"
+- IA: *refaz de novo*
+```
+
+Isso é usar IA como um estagiário confuso que precisa de microgerenciamento constante.
+
+A próxima fase foi criar prompts melhores - instruções mais detalhadas, contexto mais rico. Funcionava melhor, mas ainda era uma conversa de ida e volta.
+
+Agentes foram o próximo salto. Um agente tem:
+- **Goal**: O que ele precisa alcançar
+- **Context**: Informações que ele precisa saber
+- **Constraints**: Limites do que ele pode/deve fazer
+- **Tools**: O que ele tem disponível para usar
+
+Mas quando você tem múltiplas responsabilidades diferentes, um agente único vira um monstro cheio de instruções conflitantes. É aí que entram os **sub-agents**.
+
+<MermaidDiagram
+  title="Evolução do Uso de IA: Do Chat aos Sub-Agents"
+  chart={`
+flowchart LR
+    subgraph Chat[Chat Básico]
+        C1[Pergunta] --> C2[Resposta]
+        C2 --> C3[Correção]
+        C3 --> C4[Nova correção]
+    end
+
+    subgraph Prompt[Prompt Engineering]
+        P1[Prompt detalhado] --> P2[Resposta melhor]
+        P2 --> P3[Ajuste fino]
+    end
+
+    subgraph Agent[Agente Único]
+        A1[Goal + Context] --> A2[Execução]
+        A2 --> A3[Resultado]
+    end
+
+    subgraph SubAgents[Sub-Agents]
+        S1[Orquestrador] --> S2[Code Reviewer]
+        S1 --> S3[Security Auditor]
+        S1 --> S4[Doc Writer]
+        S2 --> S5[Resultado Integrado]
+        S3 --> S5
+        S4 --> S5
+    end
+
+    Chat -->|Evolução| Prompt
+    Prompt -->|Evolução| Agent
+    Agent -->|Evolução| SubAgents
+
+    style Chat fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style Prompt fill:#78350f,stroke:#f59e0b,color:#fef3c7
+    style Agent fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style SubAgents fill:#14532d,stroke:#22c55e,color:#dcfce7
+  `}
+/>
+
+## O que são sub-agents no Claude Code
+
+Sub-agents são agentes especializados que você pode invocar dentro do Claude Code usando o comando `/`. Cada um tem uma responsabilidade única e bem definida.
+
+A analogia que funciona pra mim: pense em um time de engenharia. Você não pede pro mesmo dev fazer code review, escrever documentação, otimizar performance E configurar infra. Você tem especialistas.
+
+Sub-agents são esses especialistas. O `code-reviewer` só faz review. O `doc-writer` só escreve docs. O `security-auditor` só analisa segurança.
+
+<ExecutableCode
+  title="Invoking Sub-Agents in Claude Code"
+  language="bash"
+  code={`# Focused code review
+/code-reviewer analyze file payment_processor.go
+
+# Security analysis
+/security-auditor check vulnerabilities in auth module
+
+# Documentation generation
+/doc-writer create ADR for Redis cache decision
+
+# Go specialist
+/golang-expert optimize ProcessBatch function to reduce allocations`}
+  output={`✓ code-reviewer: Analyzing payment_processor.go...
+  → 3 issues found (1 critical, 2 suggestions)
+
+✓ security-auditor: Scanning auth module...
+  → 1 medium vulnerability found (CWE-287)
+
+✓ doc-writer: Generating ADR...
+  → ADR-0015-redis-cache.md created
+
+✓ golang-expert: Optimizing ProcessBatch...
+  → 40% reduction in allocations suggested`}
+/>
+
+A mágica não está na tecnologia, está na **separação de responsabilidades**. Cada agente pode ter instruções específicas, exemplos específicos, e constraints específicas para seu domínio.
+
+## Quick Start: Seu primeiro sub-agent em 5 minutos
+
+Quer testar agora antes de continuar lendo? Faça isso:
+
+<ExecutableCode
+  title="Instant Setup"
+  language="bash"
+  code={`# 1. Create agents folder
+mkdir -p ~/.claude
+
+# 2. Create your first agent
+cat > ~/.claude/code-reviewer.md << 'EOF'
+# Code Reviewer
+
+## Role
+You are a senior code reviewer.
+
+## Focus
+- Obvious bugs
+- Error handling
+- Poor naming
+- Untreated edge cases
+
+## Output Format
+| Severity | Line | Issue | Suggestion |
+|----------|------|-------|------------|
+| 🔴/🟡/🟢  | N    | ...   | ...        |
+
+## Example
+| Severity | Line | Issue | Suggestion |
+|----------|------|-------|------------|
+| 🔴 Critical | 42 | Error ignored | Add err check |
+EOF
+
+echo "✅ Agent created!"
+
+# 3. Test it now!
+# Open Claude Code and type:
+# /code-reviewer analyze [your file]`}
+  output={`✅ Folder ~/.claude/ created
+✅ Agent code-reviewer.md saved
+✅ Available via /code-reviewer
+
+🚀 Ready to use! Go back to Claude Code and test:
+   /code-reviewer analyze src/main.go`}
+/>
+
+**Funcionou?** Ótimo! Agora continue lendo para entender como isso funciona e como criar agentes mais sofisticados.
+
+**Não funcionou?** Verifique:
+- O arquivo está em `~/.claude/code-reviewer.md` (caminho absoluto)
+- O arquivo tem extensão `.md`
+- Claude Code está aberto (reinicie se necessário)
+
+## O ganho oculto: preservação de contexto
+
+Aqui está algo que pouca gente fala, mas que faz uma diferença enorme na prática: **sub-agents rodam em contextos isolados**.
+
+### O problema do contexto saturado
+
+Toda conversa com IA tem um limite de contexto (a "janela" de tokens que ela consegue processar). Quando você usa um único agente para tudo, cada interação consome parte desse contexto:
+
+<MermaidDiagram
+  title="Problema: Contexto Saturado em Agente Único"
+  chart={`
+flowchart TB
+    subgraph Context[Contexto Principal - 200K tokens]
+        direction TB
+        I1[System Prompt<br/>5K tokens]
+        I2[Código do projeto<br/>50K tokens]
+        I3[Histórico de chat<br/>30K tokens]
+        I4[Code review anterior<br/>20K tokens]
+        I5[Análise de segurança<br/>25K tokens]
+        I6[Docs geradas<br/>15K tokens]
+        I7[Mais código<br/>40K tokens]
+        I8[⚠️ Espaço restante<br/>15K tokens]
+    end
+
+    style I8 fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    style Context fill:#1e293b,stroke:#64748b,color:#e2e8f0
+  `}
+/>
+
+Conforme a conversa avança, o contexto vai enchendo. Quando atinge o limite:
+- A IA começa a "esquecer" partes antigas da conversa
+- Respostas ficam menos precisas
+- Você precisa repetir contexto que já deu antes
+- Eventualmente precisa começar uma conversa nova
+
+### A solução: contextos isolados
+
+Com sub-agents, cada agente roda em seu próprio contexto. O contexto principal só guarda o essencial: o resultado final de cada sub-agent, não todo o processo.
+
+<MermaidDiagram
+  title="Solução: Contextos Isolados com Sub-Agents"
+  chart={`
+flowchart TB
+    subgraph Main[Contexto Principal - 200K tokens]
+        direction TB
+        M1[System Prompt<br/>5K tokens]
+        M2[Código do projeto<br/>50K tokens]
+        M3[Histórico resumido<br/>10K tokens]
+        M4[✅ Resultado: code-review<br/>2K tokens]
+        M5[✅ Resultado: security<br/>1K tokens]
+        M6[✅ Resultado: docs<br/>3K tokens]
+        M7[🟢 Espaço disponível<br/>129K tokens]
+    end
+
+    subgraph Sub1[Sub-Agent: Code Reviewer]
+        S1A[Instruções específicas]
+        S1B[Código em análise]
+        S1C[Análise detalhada]
+        S1D[Output estruturado]
+    end
+
+    subgraph Sub2[Sub-Agent: Security Auditor]
+        S2A[Instruções de segurança]
+        S2B[Código vulnerável]
+        S2C[Análise OWASP]
+        S2D[Findings formatados]
+    end
+
+    subgraph Sub3[Sub-Agent: Doc Writer]
+        S3A[Templates de docs]
+        S3B[Contexto técnico]
+        S3C[Geração de ADR]
+        S3D[Documento final]
+    end
+
+    Sub1 -->|Apenas resultado| M4
+    Sub2 -->|Apenas resultado| M5
+    Sub3 -->|Apenas resultado| M6
+
+    style M7 fill:#14532d,stroke:#22c55e,color:#dcfce7
+    style Main fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    style Sub1 fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style Sub2 fill:#581c87,stroke:#a855f7,color:#e9d5ff
+    style Sub3 fill:#78350f,stroke:#f59e0b,color:#fef3c7
+  `}
+/>
+
+### Impacto real na prática
+
+<ComparisonTable
+  title="Comparativo: Agente Único vs Sub-Agents"
+  columns={[
+    { header: "Aspecto", key: "aspect" },
+    { header: "Agente Único", key: "single", align: "center" },
+    { header: "Sub-Agents", key: "multi", align: "center" },
+  ]}
+  data={[
+    {
+      aspect: "Uso de contexto por tarefa",
+      single: "100% acumulativo",
+      multi: "Isolado por agente",
+      highlight: true,
+    },
+    {
+      aspect: "Duração útil da conversa",
+      single: "~30-50 interações",
+      multi: "~200+ interações",
+      highlight: true,
+    },
+    {
+      aspect: "Degradação de qualidade",
+      single: "Progressiva",
+      multi: "Mínima",
+    },
+    {
+      aspect: "Necessidade de repetir contexto",
+      single: "Frequente",
+      multi: "Rara",
+    },
+    {
+      aspect: "Precisão em tarefas específicas",
+      single: "Média (instruções diluídas)",
+      multi: "Alta (instruções focadas)",
+      highlight: true,
+    },
+    {
+      aspect: "Facilidade de debug",
+      single: "Difícil (tudo misturado)",
+      multi: "Fácil (isolar o agente)",
+    },
+  ]}
+/>
+
+**Exemplo concreto:** Em um projeto grande, depois de ~40 interações com agente único, comecei a notar que o Claude "esquecia" decisões anteriores. Com sub-agents, cheguei a 150+ interações na mesma sessão sem degradação perceptível.
+
+O motivo é simples: cada sub-agent processa sua tarefa em isolamento, e só o **resultado condensado** volta pro contexto principal. É como ter uma equipe que te entrega relatórios executivos ao invés de te incluir em todas as reuniões.
+
+## Por que isso importa: o princípio da responsabilidade única
+
+Se você trabalha com arquitetura de software, conhece o SRP (Single Responsibility Principle). Um módulo deve ter apenas um motivo para mudar.
+
+O mesmo princípio se aplica a agentes de IA:
+
+<ComparisonTable
+  title="SRP Aplicado a Agentes de IA"
+  columns={[
+    { header: "Característica", key: "char" },
+    { header: "❌ Agente Monolítico", key: "mono", align: "center" },
+    { header: "✅ Sub-Agents Especializados", key: "micro", align: "center" },
+  ]}
+  data={[
+    {
+      char: "Instruções",
+      mono: "Conflitantes e genéricas",
+      micro: "Claras e focadas",
+    },
+    {
+      char: "Contexto",
+      mono: "Poluído com tudo",
+      micro: "Limpo e relevante",
+    },
+    {
+      char: "Output",
+      mono: "Inconsistente",
+      micro: "Previsível",
+    },
+    {
+      char: "Debug",
+      mono: "Difícil identificar problema",
+      micro: "Isolar agente específico",
+    },
+    {
+      char: "Manutenção",
+      mono: "Mudança afeta tudo",
+      micro: "Mudança isolada",
+    },
+  ]}
+/>
+
+É a diferença entre um monolito e microserviços, mas para IA.
+
+## Quando não usar sub-agents
+
+Sub-agents não são silver bullet. Tem situações onde não fazem sentido:
+
+<ComparisonTable
+  title="Quando Usar vs Não Usar Sub-Agents"
+  columns={[
+    { header: "Cenário", key: "scenario" },
+    { header: "Recomendação", key: "rec", align: "center" },
+    { header: "Motivo", key: "reason" },
+  ]}
+  data={[
+    {
+      scenario: "Tarefas simples e únicas",
+      rec: "❌ Não usar",
+      reason: "Overhead de invocação não compensa",
+    },
+    {
+      scenario: "Exploração inicial",
+      rec: "❌ Não usar",
+      reason: "Conversa livre é mais útil",
+    },
+    {
+      scenario: "Contexto muito específico do projeto",
+      rec: "⚠️ Depende",
+      reason: "Pode gastar mais tempo explicando",
+    },
+    {
+      scenario: "Projetos pequenos (<500 LOC)",
+      rec: "❌ Não usar",
+      reason: "Over-engineering",
+    },
+    {
+      scenario: "Code reviews frequentes",
+      rec: "✅ Usar",
+      reason: "Consistência e completude",
+      highlight: true,
+    },
+    {
+      scenario: "Sessões longas de desenvolvimento",
+      rec: "✅ Usar",
+      reason: "Preserva contexto principal",
+      highlight: true,
+    },
+    {
+      scenario: "Múltiplas perspectivas necessárias",
+      rec: "✅ Usar",
+      reason: "Especialização > generalização",
+      highlight: true,
+    },
+    {
+      scenario: "Time usando padrões compartilhados",
+      rec: "✅ Usar",
+      reason: "Consistência entre devs",
+    },
+  ]}
+/>
+
+## Configurando sub-agents no Claude Code
+
+O Claude Code permite configurar sub-agents através de arquivos markdown na pasta `.claude/`. Cada arquivo define um agente com suas instruções.
+
+### Estrutura básica
+
+<ExecutableCode
+  title="Directory Structure for Sub-Agents"
+  language="bash"
+  code={`tree .claude/
+
+# Create initial structure
+mkdir -p .claude
+touch .claude/code-reviewer.md
+touch .claude/golang-expert.md
+touch .claude/doc-writer.md
+touch .claude/security-auditor.md`}
+  output={`.claude/
+├── code-reviewer.md
+├── golang-expert.md
+├── doc-writer.md
+└── security-auditor.md
+
+4 files, 0 directories`}
+/>
+
+Cada arquivo segue um formato simples:
+
+```markdown
+# Code Reviewer
+
+## Role
+You are a senior code reviewer specialized in Go and Python.
+
+## Responsibilities
+- Identify bugs and edge cases
+- Suggest readability improvements
+- Verify adherence to project standards
+- Point out performance issues
+
+## Guidelines
+- Be specific: point out line and file
+- Explain the "why" of each suggestion
+- Prioritize: critical > important > nice-to-have
+- Don't rewrite entire code, suggest targeted changes
+
+## Output Format
+For each issue found:
+1. Severity (critical/important/suggestion)
+2. File and line
+3. Identified problem
+4. Correction suggestion
+5. Justification
+
+## Examples
+[good review examples here]
+```
+
+### Os agentes que uso no dia a dia
+
+Vou compartilhar os principais sub-agents que configuro em projetos Go/Python.
+
+<ExecutableCode
+  title="Sub-Agent: Code Reviewer"
+  language="markdown"
+  code={`# Code Reviewer
+
+## Role
+Code reviewer focused on quality and maintainability.
+
+## Focus Areas
+- Race conditions and concurrency issues
+- Proper error handling
+- Naming and readability
+- Cyclomatic complexity
+- Missing tests
+
+## What I Don't Do
+- Reformat code (leave it to the linter)
+- Discuss personal style
+- Suggest massive refactorings without context
+
+## Review Checklist
+- [ ] Are errors handled, not ignored?
+- [ ] Are names descriptive?
+- [ ] Do functions have single responsibility?
+- [ ] Are there tests for edge cases?
+- [ ] Is concurrency safe?
+
+## Output Format
+- | Severity | File:Line | Issue | Suggestion |
+- |----------|-----------|-------|------------|
+- | 🔴 Critical | file.go:42 | ... | ...      |
+- | 🟡 Medium   | file.go:87 | ... | ...      |
+- | 🟢 Suggestion| file.go:123 | ... | ...    |
+\`\`\``}
+  output={`✓ File .claude/code-reviewer.md created
+✓ Agent available via /code-reviewer`}
+/>
+
+<ExecutableCode
+  title="Sub-Agent: Golang Expert"
+  language="markdown"
+  code={`# Golang Expert
+
+## Role
+Go specialist focused on idiomatic and performant code.
+
+## Expertise
+- Concurrency patterns (goroutines, channels, sync)
+- Idiomatic error handling
+- Interface design
+- Performance optimization
+- Standard library
+
+## Guidelines
+- Prefer stdlib when possible
+- Channels for communication, mutexes for state
+- Errors are values, treat them as such
+- Small and focused interfaces
+- Context in all I/O operations
+
+## Anti-patterns I Flag
+- init() with side effects
+- Goroutine leaks
+- Race conditions
+- Panic in library code
+- Interface pollution
+
+## Code Patterns I Recommend
+\`\`\`go
+// ✅ Idiomatic error handling
+if err != nil {
+    return fmt.Errorf("failed to process: %w", err)
+}
+
+// ✅ Context propagation
+func DoWork(ctx context.Context) error {
+    select {
+    case <-ctx.Done():
+        return ctx.Err()
+    default:
+        // work
+    }
+}
+
+// ✅ Graceful shutdown
+g, ctx := errgroup.WithContext(ctx)
+g.Go(func() error { return worker(ctx) })
+\`\`\``}
+  output={`✓ File .claude/golang-expert.md created
+✓ Agent available via /golang-expert`}
+/>
+
+<ExecutableCode
+  title="Sub-Agent: Security Auditor"
+  language="markdown"
+  code={`# Security Auditor
+
+## Role
+Security analyst focused on code and architecture.
+
+## Focus Areas
+- Input validation
+- Authentication/Authorization
+- Secrets management
+- SQL injection
+- XSS/CSRF
+- Dependency vulnerabilities
+
+## Severity Classification
+- | Level | Description | SLA |
+- |-------|-------------|-----|
+- | 🔴 CRITICAL | Immediate exploitation possible | Fix in 24h |
+- | 🟠 HIGH | Significant risk | Fix in 1 week |
+- | 🟡 MEDIUM | Moderate risk | Plan for sprint |
+- | 🟢 LOW | Security improvement | Backlog |
+
+## Output Format
+### Finding #1: [Title]
+- **Severity:** 🔴 CRITICAL
+- **CWE:** CWE-89 (SQL Injection)
+- **File:** user_repository.go:45
+- **Description:** SQL query built with concatenation
+- **PoC:** \`' OR '1'='1\`
+- **Remediation:** Use prepared statements
+- **Reference:** OWASP Top 10 A03:2021`}
+  output={`✓ File .claude/security-auditor.md created
+✓ Agent available via /security-auditor`}
+/>
+
+<ExecutableCode
+  title="Sub-Agent: Doc Writer"
+  language="markdown"
+  code={`# Documentation Writer
+
+## Role
+Technical writer specialized in engineering documentation.
+
+## Document Types
+- ADRs (Architecture Decision Records)
+- READMEs
+- API documentation
+- Runbooks
+- Postmortems
+
+## ADR Template
+When asked to create an ADR, use this format:
+
+# ADR-XXXX: [Descriptive Title]
+
+## Status
+[proposed | accepted | deprecated | superseded by ADR-XXXX]
+
+## Context
+[Why are we making this decision? What problem are we solving?]
+
+## Decision
+[What did we decide to do?]
+
+## Consequences
+### Positive
+- ...
+
+### Negative
+- ...
+
+### Risks
+- ...
+
+## Alternatives Considered
+1. **[Alternative 1]**: [Why we didn't choose it]
+2. **[Alternative 2]**: [Why we didn't choose it]
+
+## References
+- [Relevant links]
+
+## Writing Style
+- Straight to the point
+- Concrete examples
+- Avoid unnecessary jargon
+- Links to references`}
+  output={`✓ File .claude/doc-writer.md created
+✓ Agent available via /doc-writer`}
+/>
+
+## Exemplo prático: workflow de code review
+
+Vou mostrar como uso sub-agents em um workflow real de code review.
+
+**Cenário:** Recebi um PR com uma nova feature de processamento de pagamentos.
+
+<MermaidDiagram
+  title="Workflow de Code Review com Sub-Agents"
+  chart={`
+sequenceDiagram
+    autonumber
+    participant Dev as Developer
+    participant Main as Contexto Principal
+    participant CR as /code-reviewer
+    participant SA as /security-auditor
+    participant GE as /golang-expert
+    participant PR as Pull Request
+
+    Dev->>Main: Revisar PR #123 de pagamentos
+    
+    Note over Main: Delega para especialistas
+
+    Main->>CR: Análise geral de qualidade
+    activate CR
+    Note over CR: Contexto isolado<br/>~15K tokens
+    CR->>CR: Analisa error handling
+    CR->>CR: Verifica testes
+    CR->>CR: Checa naming
+    CR-->>Main: 📋 3 issues (1 crítica)
+    deactivate CR
+
+    Main->>SA: Verificar segurança
+    activate SA
+    Note over SA: Contexto isolado<br/>~20K tokens
+    SA->>SA: Scan de vulnerabilidades
+    SA->>SA: Valida input sanitization
+    SA->>SA: Checa secrets exposure
+    SA-->>Main: 🔒 1 finding médio
+    deactivate SA
+
+    Main->>GE: Otimizar concorrência
+    activate GE
+    Note over GE: Contexto isolado<br/>~12K tokens
+    GE->>GE: Analisa goroutine usage
+    GE->>GE: Verifica race conditions
+    GE->>GE: Sugere errgroup
+    GE-->>Main: ⚡ 2 otimizações
+    deactivate GE
+
+    Note over Main: Contexto principal<br/>permanece em ~60K tokens<br/>(não acumulou os 47K dos sub-agents)
+
+    Main->>Dev: Review consolidado
+    Dev->>PR: Aplica correções
+    Dev->>Main: Re-review rápido
+    Main-->>Dev: ✅ LGTM
+  `}
+/>
+
+**Passo 1: Review geral**
+
+<ExecutableCode
+  title="Step 1: General Code Review"
+  language="bash"
+  code={`/code-reviewer analyze PR #123
+
+Special focus on:
+- Error handling
+- Edge cases
+- Tests`}
+  output={`🔍 Analyzing PR #123...
+
+📋 Issues found:
+
+| Severity | File:Line | Issue | Suggestion |
+|----------|-----------|-------|------------|
+| 🔴 Critical | payment.go:156 | Untreated error in transaction | Add defer/rollback |
+| 🟡 Medium | validator.go:42 | Missing edge case validation | Validate negative values |
+| 🟢 Suggestion | handler.go:89 | Missing timeout test | Add test case |
+
+✅ 3 issues identified (1 critical, 1 medium, 1 suggestion)`}
+/>
+
+O code-reviewer retorna uma lista estruturada de issues, priorizadas por severidade.
+
+**Passo 2: Análise de segurança**
+
+<ExecutableCode
+  title="Step 2: Security Audit"
+  language="bash"
+  code={`/security-auditor check payment code
+
+Context: This code processes financial transactions
+and interacts with Stripe external API.`}
+  output={`🔒 Scanning payment module...
+
+### Finding #1: Stripe API Key in logs
+- **Severity:** 🟠 HIGH
+- **CWE:** CWE-532 (Information Exposure Through Log Files)
+- **File:** payment_service.go:234
+- **Description:** Stripe API key being logged in error case
+- **Remediation:** Sanitize logs before writing, mask secrets
+- **Reference:** OWASP Top 10 A09:2021
+
+### Finding #2: Insufficient input validation
+- **Severity:** 🟡 MEDIUM
+- **File:** payment_handler.go:67
+- **Description:** Amount accepts negative values
+- **Remediation:** Add validation: amount > 0
+
+✅ 2 vulnerabilities found (1 HIGH, 1 MEDIUM)`}
+/>
+
+O security-auditor foca em vulnerabilidades específicas: validação de input, secrets, logging de dados sensíveis.
+
+**Passo 3: Verificação Go-específica**
+
+<ExecutableCode
+  title="Step 3: Go Expert - Concurrency Review"
+  language="bash"
+  code={`/golang-expert review concurrency patterns
+in file payment_processor.go
+
+Specifically:
+- Worker pool implementation
+- Channel usage
+- Error propagation`}
+  output={`⚡ Analyzing concurrency patterns...
+
+### Issue #1: Goroutine Leak
+\`\`\`go
+// ❌ Problem (line 145-150)
+for _, payment := range payments {
+    go processPayment(payment) // leak: no wait group
+}
+
+// ✅ Suggestion: use errgroup
+g, ctx := errgroup.WithContext(ctx)
+for _, payment := range payments {
+    p := payment
+    g.Go(func() error {
+        return processPayment(ctx, p)
+    })
+}
+if err := g.Wait(); err != nil {
+    return fmt.Errorf("payment processing failed: %w", err)
+}
+\`\`\`
+
+### Issue #2: Unbuffered channel
+- **Line:** 89
+- **Problem:** Potential deadlock in error path
+- **Suggestion:** Use buffered channel or context cancellation
+
+✅ 2 optimizations suggested
+📈 Estimated reduction: 40% fewer goroutines, robust error handling`}
+/>
+
+O golang-expert encontra um potencial goroutine leak e sugere usar errgroup.
+
+**Resultado:** Três perspectivas diferentes, cada uma focada no que faz melhor. E o mais importante: **meu contexto principal não saturou** com os detalhes de cada análise - recebi apenas os resultados condensados.
+
+<ComparisonTable
+  title="Economia de Contexto no Workflow"
+  columns={[
+    { header: "Etapa", key: "step" },
+    { header: "Contexto Usado", key: "used", align: "right" },
+    { header: "Retornado ao Principal", key: "returned", align: "right" },
+    { header: "Economia", key: "saved", align: "right" },
+  ]}
+  data={[
+    {
+      step: "Code Review",
+      used: "~15K tokens",
+      returned: "~2K tokens",
+      saved: "87%",
+      highlight: true,
+    },
+    {
+      step: "Security Audit",
+      used: "~20K tokens",
+      returned: "~1.5K tokens",
+      saved: "92%",
+    },
+    {
+      step: "Go Expert Review",
+      used: "~12K tokens",
+      returned: "~1K tokens",
+      saved: "92%",
+      highlight: true,
+    },
+    {
+      step: "TOTAL",
+      used: "~47K tokens",
+      returned: "~4.5K tokens",
+      saved: "90%",
+    },
+  ]}
+/>
+
+## Arquitetura de sub-agents: design patterns
+
+Depois de usar sub-agents por alguns meses, identifiquei alguns patterns que funcionam bem.
+
+### Pattern 1: Orquestrador + Especialistas
+
+<MermaidDiagram
+  title="Pattern: Orquestrador + Especialistas"
+  chart={`
+flowchart TB
+    User[Usuário] --> Orch["Orquestrador<br/>Contexto Principal"]
+
+    Orch --> Decision{Tipo de tarefa?}
+
+    Decision -->|Code| CR["code-reviewer"]
+    Decision -->|Security| SA["security-auditor"]
+    Decision -->|Docs| DW["doc-writer"]
+    Decision -->|Performance| PE["perf-engineer"]
+    Decision -->|Go específico| GE["golang-expert"]
+
+    CR --> Results["Resultados<br/>Consolidados"]
+    SA --> Results
+    DW --> Results
+    PE --> Results
+    GE --> Results
+
+    Results --> Orch
+    Orch --> User
+
+    style Orch fill:#1e40af,stroke:#3b82f6,color:#dbeafe
+    style CR fill:#166534,stroke:#22c55e,color:#dcfce7
+    style SA fill:#991b1b,stroke:#ef4444,color:#fee2e2
+    style DW fill:#78350f,stroke:#f59e0b,color:#fef3c7
+    style PE fill:#581c87,stroke:#a855f7,color:#e9d5ff
+    style GE fill:#0f766e,stroke:#14b8a6,color:#ccfbf1
+  `}
+/>
+
+### Pattern 2: Pipeline de Validação
+
+<MermaidDiagram
+  title="Pattern: Pipeline de Validação"
+  chart={`
+flowchart LR
+    Code[Código] --> CR["code-reviewer"]
+    CR -->|Pass| SA["security-auditor"]
+    CR -->|Fail| Fix1[Correções]
+    Fix1 --> CR
+
+    SA -->|Pass| PE["perf-engineer"]
+    SA -->|Fail| Fix2[Correções]
+    Fix2 --> SA
+
+    PE -->|Pass| Ready["Ready to Merge"]
+    PE -->|Fail| Fix3[Otimizações]
+    Fix3 --> PE
+
+    style Ready fill:#14532d,stroke:#22c55e,color:#dcfce7
+    style CR fill:#1e3a8a,stroke:#3b82f6,color:#dbeafe
+    style SA fill:#991b1b,stroke:#ef4444,color:#fee2e2
+    style PE fill:#581c87,stroke:#a855f7,color:#e9d5ff
+  `}
+/>
+
+### Pattern 3: Especialistas em Paralelo
+
+Quando as análises são independentes, rode em paralelo:
+
+<ExecutableCode
+  title="Pattern 3: Parallel Agent Execution"
+  language="bash"
+  code={`# Parallel execution (if your setup allows)
+/code-reviewer analyze payment.go &
+/security-auditor scan payment.go &
+/golang-expert optimize payment.go &
+
+# Wait for all to complete
+wait
+
+# Consolidate results`}
+  output={`🚀 Starting parallel analyses of payment.go...
+
+[1] code-reviewer started (PID 12345)
+[2] security-auditor started (PID 12346)
+[3] golang-expert started (PID 12347)
+
+⏳ Waiting for completion...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[1] ✅ code-reviewer completed (2.3s)
+📋 2 issues found (1 medium, 1 suggestion)
+
+[2] ✅ security-auditor completed (1.8s)
+🔒 1 HIGH vulnerability found
+
+[3] ✅ golang-expert completed (3.1s)
+⚡ 3 optimizations suggested
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 Consolidated Results:
+
+Code Quality:
+  - 🟡 payment.go:89 - Inconsistent error wrapping
+  - 🟢 payment.go:156 - Add context to log
+
+Security:
+  - 🔴 payment.go:234 - API key exposed in logs
+
+Performance:
+  - ⚡ payment.go:45 - Use sync.Pool to reduce allocations
+  - ⚡ payment.go:127 - Cache repetitive validations
+  - ⚡ payment.go:189 - Batch processing for multiple payments
+
+✅ Total: 6 findings in 3.1s (vs ~7s sequential)
+📈 Gain: 55% faster with parallel execution`}
+/>
+
+## Armadilhas comuns
+
+**1. Too generic agents**
+
+```markdown
+# ❌ Bad: General Helper
+You help with anything programming related.
+```
+
+This is basically having no agent at all. The more specific, the better.
+
+**2. Conflicting instructions**
+
+```markdown
+# ❌ Bad: Mixed Responsibilities
+- Review code
+- Write tests
+- Optimize performance
+- Document APIs
+```
+
+Each of these should be a separate agent.
+
+**3. Lack of examples**
+
+Agents learn a lot from examples. An agent with zero examples produces inconsistent output.
+
+```markdown
+## ✅ Good: With examples
+
+### Example Output
+
+- | Severity | File:Line | Issue | Suggestion |
+- |----------|-----------|-------|------------|
+- | 🔴 Critical | auth.go:42 | SQL injection via concatenation | Use prepared statements |
+
+### Anti-Example (don't do this)
+
+"The code has some security issues you should look at."
+```
+
+**4. Not iterating**
+
+Your first agent draft will be bad. The second too. Iterate based on real output until the agent consistently produces what you expect.
+
+## Métricas que observo
+
+Como saber se sub-agents estão funcionando? Algumas métricas que acompanho:
+
+<ComparisonTable
+  title="Métricas de Produtividade com Sub-Agents"
+  columns={[
+    { header: "Métrica", key: "metric" },
+    { header: "Antes", key: "before", align: "center" },
+    { header: "Depois", key: "after", align: "center" },
+    { header: "Melhoria", key: "improvement", align: "center" },
+  ]}
+  data={[
+    {
+      metric: "Tempo médio de review (PR médio)",
+      before: "~2h",
+      after: "~30min",
+      improvement: "75% ⬇️",
+      highlight: true,
+    },
+    {
+      metric: "Bugs escapados para prod/mês",
+      before: "~5",
+      after: "~1",
+      improvement: "80% ⬇️",
+      highlight: true,
+    },
+    {
+      metric: "Interações úteis por sessão",
+      before: "~40",
+      after: "~150+",
+      improvement: "275% ⬆️",
+    },
+    {
+      metric: "Retrabalho em PRs",
+      before: "~3 rounds",
+      after: "~1 round",
+      improvement: "66% ⬇️",
+    },
+    {
+      metric: "Consistência de docs",
+      before: "Variável",
+      after: "Padronizada",
+      improvement: "✅",
+    },
+  ]}
+/>
+
+## O ecossistema: awesome-claude-code-subagents
+
+Se você não quer criar tudo do zero, existe um repositório da comunidade com sub-agents prontos: [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents).
+
+**126 agentes especializados**, prontos para usar.
+
+<MermaidDiagram
+  title="Ecossistema de 126 Sub-Agents Disponíveis"
+  chart={`
+mindmap
+  root((126 Agentes))
+    Core Dev 5
+      api-designer
+      backend-developer
+      frontend-developer
+      fullstack-developer
+      mobile-developer
+    Languages 20
+      golang-pro
+      python-pro
+      typescript-pro
+      rust-engineer
+      java-architect
+      cpp-pro
+      javascript-pro
+      react-specialist
+      ...16 mais
+    Infrastructure 12
+      cloud-architect
+      kubernetes-specialist
+      terraform-engineer
+      devops-engineer
+      database-administrator
+      ...7 mais
+    Quality & Security 13
+      code-reviewer
+      security-auditor
+      penetration-tester
+      chaos-engineer
+      performance-engineer
+      ...8 mais
+    Data & AI 10
+      ai-engineer
+      llm-architect
+      mlops-engineer
+      data-scientist
+      nlp-engineer
+      ...5 mais
+    Dev Experience 11
+      dx-optimizer
+      git-workflow-manager
+      refactoring-specialist
+      prompt-engineer
+      ...7 mais
+    Business 10
+      product-manager
+      business-analyst
+      sales-engineer
+      legal-advisor
+      ...6 mais
+    Meta 9
+      multi-agent-coordinator
+      workflow-orchestrator
+      context-manager
+      ...6 mais
+  `}
+/>
+
+### Categorias principais
+
+O repositório organiza os agentes em 10 categorias:
+
+<ComparisonTable
+  title="Categorias de Agentes Disponíveis"
+  columns={[
+    { header: "Categoria", key: "category" },
+    { header: "Qtd", key: "count", align: "center" },
+    { header: "Exemplos", key: "examples" },
+    { header: "Caso de Uso", key: "usecase" },
+  ]}
+  data={[
+    {
+      category: "Core Development",
+      count: "5",
+      examples: "frontend-developer, backend-developer, fullstack-developer",
+      usecase: "Desenvolvimento end-to-end de features",
+    },
+    {
+      category: "Language Specialists",
+      count: "20",
+      examples: "golang-pro, python-pro, rust-engineer, react-specialist",
+      usecase: "Expertise específica por linguagem/framework",
+      highlight: true,
+    },
+    {
+      category: "Infrastructure",
+      count: "12",
+      examples: "cloud-architect, kubernetes-specialist, terraform-engineer",
+      usecase: "Deploy, infra-as-code, cloud",
+    },
+    {
+      category: "Quality & Security",
+      count: "13",
+      examples: "code-reviewer, security-auditor, penetration-tester",
+      usecase: "Code review, security audit, testing",
+      highlight: true,
+    },
+    {
+      category: "Data & AI",
+      count: "10",
+      examples: "llm-architect, mlops-engineer, data-scientist",
+      usecase: "ML/AI pipelines, analytics",
+    },
+    {
+      category: "Developer Experience",
+      count: "11",
+      examples: "dx-optimizer, git-workflow-manager, prompt-engineer",
+      usecase: "Melhoria de produtividade dev",
+    },
+    {
+      category: "Specialized Domains",
+      count: "10",
+      examples: "blockchain-developer, fintech-engineer, game-developer",
+      usecase: "Domínios nichados específicos",
+    },
+    {
+      category: "Business & Product",
+      count: "10",
+      examples: "product-manager, business-analyst, legal-advisor",
+      usecase: "Decisões de produto e negócio",
+    },
+    {
+      category: "Meta & Orchestration",
+      count: "9",
+      examples: "multi-agent-coordinator, workflow-orchestrator",
+      usecase: "Coordenar outros agentes",
+      highlight: true,
+    },
+    {
+      category: "Operations & Deployment",
+      count: "8",
+      examples: "deployment-engineer, incident-responder, sre-engineer",
+      usecase: "Ops, monitoring, deploys",
+    },
+  ]}
+/>
+
+### Agentes que uso frequentemente
+
+Dos 126 disponíveis, alguns se tornaram essenciais no meu workflow:
+
+<ExecutableCode
+  title="Installing Agents from Repository"
+  language="bash"
+  code={`# Clone the repository
+git clone https://github.com/VoltAgent/awesome-claude-code-subagents.git
+cd awesome-claude-code-subagents
+
+# Copy the agents you want to your project
+cp agents/code-reviewer.md ~/.claude/
+cp agents/golang-pro.md ~/.claude/
+cp agents/security-auditor.md ~/.claude/
+cp agents/technical-writer.md ~/.claude/
+cp agents/devops-engineer.md ~/.claude/
+
+# Verify they were installed
+ls -la ~/.claude/`}
+  output={`Cloning into 'awesome-claude-code-subagents'...
+remote: Enumerating objects: 450, done.
+remote: Counting objects: 100% (450/450), done.
+remote: Compressing objects: 100% (320/320), done.
+remote: Total 450 (delta 180), reused 380 (delta 120)
+Receiving objects: 100% (450/450), 1.2 MiB | 2.5 MiB/s, done.
+
+total 40
+-rw-r--r-- 1 user user 5234 Jan 01 10:30 code-reviewer.md
+-rw-r--r-- 1 user user 4821 Jan 01 10:30 golang-pro.md
+-rw-r--r-- 1 user user 6102 Jan 01 10:30 security-auditor.md
+-rw-r--r-- 1 user user 3945 Jan 01 10:30 technical-writer.md
+-rw-r--r-- 1 user user 5567 Jan 01 10:30 devops-engineer.md
+
+✅ 5 agents installed and ready to use!`}
+/>
+
+**Top 10 agentes que mais uso:**
+
+1. **code-reviewer** - Review automático de PRs
+2. **golang-pro** - Expert em Go idiomático
+3. **security-auditor** - OWASP top 10, CVEs
+4. **technical-writer** - Docs, ADRs, READMEs
+5. **devops-engineer** - CI/CD, Docker, K8s
+6. **refactoring-specialist** - Limpeza de código técnico debt
+7. **database-optimizer** - Query optimization, indexes
+8. **performance-engineer** - Profiling, bottlenecks
+9. **git-workflow-manager** - Branching, merging, conflicts
+10. **prompt-engineer** - Otimizar prompts de outros agentes
+
+### Agentes Meta: orquestrando outros agentes
+
+Uma categoria interessante são os **Meta & Orchestration agents** - agentes que coordenam outros agentes:
+
+<ExecutableCode
+  title="Using Multi-Agent Coordinator"
+  language="bash"
+  code={`/multi-agent-coordinator execute full review pipeline
+
+Tasks:
+1. Code review (quality)
+2. Security audit
+3. Performance analysis
+4. Documentation check
+
+Run in parallel where possible.`}
+  output={`🎭 Multi-Agent Coordinator starting...
+
+📋 Pipeline defined:
+  ├─ Parallel: code-reviewer + security-auditor + performance-engineer
+  └─ Sequential: technical-writer (after results)
+
+🚀 Executing parallel phase...
+
+[⚡ Phase 1 - Parallel] (3.2s)
+  ✅ code-reviewer: 3 issues found
+  ✅ security-auditor: 1 MEDIUM vulnerability
+  ✅ performance-engineer: 2 optimizations suggested
+
+[📝 Phase 2 - Documentation] (1.8s)
+  ✅ technical-writer: Documentation updated with findings
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 Consolidated Summary:
+
+Quality: 3 issues (1 critical)
+Security: 1 medium vulnerability
+Performance: 2 optimizations
+Docs: README.md + SECURITY.md updated
+
+✅ Pipeline completed in 5.0s
+📁 Report saved at: review-report-2025-01-01.md`}
+/>
+
+O `multi-agent-coordinator` decide:
+- Quais agentes invocar
+- Ordem de execução (paralelo vs sequencial)
+- Como consolidar resultados
+- Onde há dependências entre agentes
+
+É como ter um "orquestrador de orquestradores".
+
+### Customização e extensão
+
+Os agentes do repositório são **pontos de partida**, não soluções finais. Você deve adaptá-los ao seu contexto:
+
+```markdown
+# Example: Customizing code-reviewer for your team
+
+# Code Reviewer - Acme Corp Edition
+
+## Role
+Reviewer following Acme Corp standards.
+
+## Our Standards
+- Always use our internal logging lib: `acme/log`
+- Name tests as `TestXxx_Scenario`
+- Max 15 lines per function
+- Mandatory comments on public functions
+
+## Specific Checks
+- [ ] Uses acme/log instead of log.Printf?
+- [ ] Configs come from config.yaml, not hardcoded?
+- [ ] Secrets never in plain text?
+- [ ] DB migrations have rollback?
+
+## Our Tech Stack
+- Go 1.21+
+- PostgreSQL 15
+- Kubernetes 1.28
+- gRPC + Protocol Buffers
+
+[rest of agent...]
+```
+
+### Vale a pena usar agentes prontos?
+
+<ComparisonTable
+  title="Prós e Contras de Usar Agentes Prontos"
+  columns={[
+    { header: "Aspecto", key: "aspect" },
+    { header: "✅ Prós", key: "pros" },
+    { header: "❌ Contras", key: "cons" },
+  ]}
+  data={[
+    {
+      aspect: "Tempo de setup",
+      pros: "Minutos (vs dias criando do zero)",
+      cons: "Precisa revisar/customizar",
+    },
+    {
+      aspect: "Qualidade",
+      pros: "Comunidade testou e iterou",
+      cons: "Pode não se encaixar 100% no seu caso",
+    },
+    {
+      aspect: "Manutenção",
+      pros: "Updates da comunidade",
+      cons: "Você precisa fazer merge de updates",
+    },
+    {
+      aspect: "Aprendizado",
+      pros: "Veja como outros resolveram",
+      cons: "Pode ser tentador não entender o agente",
+    },
+    {
+      aspect: "Consistência",
+      pros: "Padrões estabelecidos",
+      cons: "Seu time pode ter padrões próprios",
+    },
+  ]}
+/>
+
+**Minha recomendação:** Comece com agentes prontos, use por 1-2 semanas, anote o que funciona e o que não funciona, então customize. Não tente criar tudo do zero - você vai reinventar a roda.
+
+## Próximos passos
+
+Se você quer começar com sub-agents:
+
+**1. Identifique tarefas repetitivas**
+O que você faz toda semana que poderia ser delegado?
+
+**2. Comece com um agente**
+Não tente criar 10 de uma vez. Comece com o code-reviewer ou equivalente.
+
+**3. Itere baseado em uso real**
+Use por uma semana, anote o que funciona e o que não funciona, ajuste.
+
+**4. Expanda gradualmente**
+Adicione novos agentes conforme identificar necessidades.
+
+---
+
+## Referências
+
+- [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) - Coleção de sub-agents prontos
+- [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code) - Documentação oficial
+- [Architecture Decision Records](https://adr.github.io/) - Padrão de ADRs
+- [Single Responsibility Principle](https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html) - Uncle Bob sobre SRP
+
+---
+
+*Usa sub-agents no seu workflow? Tem algum agente customizado que funciona bem? Me conta no [X](https://x.com/orlandocbit)!*
